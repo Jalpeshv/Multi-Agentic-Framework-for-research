@@ -1,0 +1,76 @@
+{
+  "status": "ok",
+  "research_outputs": [
+    {
+      "agent_id": "research_historical_1234",
+      "role": "historical",
+      "topic": "quantum error correction",
+      "domain": "physics",
+      "summary": "This is a placeholder 200-word summary for historical research on quantum error correction. Replace with actual Gemini output during real run. (In production runs, this field must be exactly 200-250 words and include citations.)",
+      "word_count": 200,
+      "top_papers": [
+        {"title":"Shor's Code","authors":"P. Shor","year":1995,"venue":"PRL","doi_or_url":"https://doi.org/10.1103/PhysRevA.52.R2493","why_relevant":"Foundational code for quantum error correction"}
+      ],
+      "citations": [
+        {"label":"[1]","title":"Shor's Code","authors":"P. Shor","year":1995,"venue":"PRL","doi_or_url":"https://doi.org/10.1103/PhysRevA.52.R2493"}
+      ],
+      "key_methods":["stabilizer formalism","concatenated codes","syndrome measurement"],
+      "datasets_used":["NOT FOUND"],
+      "open_problems":["scaling to large qubit counts","hardware-specific decoders","finite-temperature noise modeling"],
+      "search_terms":["quantum error correction review site:arxiv.org","Shor code original paper site:aps.org"],
+      "retrieved_on": "2026-02-06T09:00:00Z",
+      "confidence": 0.9
+    },
+    {
+      "agent_id": "research_state_of_the_art_1234",
+      "role": "state_of_the_art",
+      "topic": "quantum error correction",
+      "domain": "physics",
+      "summary": "This is a placeholder 220-word summary for state-of-the-art research on quantum error correction. Replace with actual Gemini output during real run.",
+      "word_count": 220,
+      "top_papers": [],
+      "citations": [],
+      "key_methods":["surface codes","topological codes","machine-learning decoders"],
+      "datasets_used":["NOT FOUND"],
+      "open_problems":["decoder performance in realistic noise","threshold improvements","hardware integration"],
+      "search_terms":["surface code threshold 2010..2026 site:arxiv.org"],
+      "retrieved_on": "2026-02-06T09:00:00Z",
+      "confidence": 0.85
+    },
+    {
+      "agent_id": "research_ongoing_emerging_1234",
+      "role": "ongoing_emerging",
+      "topic": "quantum error correction",
+      "domain": "physics",
+      "summary": "This is a placeholder 210-word summary for ongoing and emerging directions in quantum error correction. Replace with actual Gemini output during real run.",
+      "word_count": 210,
+      "top_papers": [],
+      "citations": [],
+      "key_methods":["real-time decoding","autonomous error correction","bosonic codes"],
+      "datasets_used":["NOT FOUND"],
+      "open_problems":["experimentally validating autonomous correction","adapting codes to device noise","scalable bosonic implementations"],
+      "search_terms":["autonomous quantum error correction site:arxiv.org","bosonic codes 2020..2026 site:nature.com"],
+      "retrieved_on": "2026-02-06T09:00:00Z",
+      "confidence": 0.78
+    }
+  ],
+  "invoice_output": {
+    "invoice_id": "invoice_abcdef12",
+    "topic": "quantum error correction",
+    "domain": "physics",
+    "cover_page_markdown": "# Quantum Error Correction\n\n**Automated Research Assistant**\n\nDate: 2026-02-06",
+    "table_of_contents_markdown": "1. Executive Summary\n2. Detailed Findings\n3. Methods & Datasets\n4. Recommendations\n5. References",
+    "sections_markdown": [
+      {"title":"Executive Summary","approx_words":250,"content":"Executive summary placeholder."},
+      {"title":"Historical Research","approx_words":300,"content":"Historical section placeholder."},
+      {"title":"State of the Art","approx_words":300,"content":"SOTA section placeholder."},
+      {"title":"Ongoing & Emerging","approx_words":300,"content":"Ongoing section placeholder."},
+      {"title":"Methods & Datasets","approx_words":200,"content":"Methods placeholder."},
+      {"title":"References","approx_words":150,"content":"1. Shor P. (1995). https://doi.org/10.1103/PhysRevA.52.R2493"}
+    ],
+    "references_markdown": "1. Shor P. (1995). https://doi.org/10.1103/PhysRevA.52.R2493",
+    "pdf_metadata": {"title":"Quantum Error Correction - Research Report","author":"Automated Research Assistant","date":"2026-02-06","keywords":["quantum","error correction","physics"]},
+    "pdf_generation_instructions": "from weasyprint import HTML; HTML('file.html').write_pdf('file.pdf')",
+    "estimated_pages": 5
+  }
+}

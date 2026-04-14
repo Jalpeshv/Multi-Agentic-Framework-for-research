@@ -1,0 +1,133 @@
+% ============================================================================
+% CHAPTER 4: PROPOSED DESIGN
+% ============================================================================
+\chapter{Proposed Design}
+
+\section{Introduction to Proposed System}
+
+The AI Research Assistant implements a five-agent hierarchical pipeline architecture where each agent operates as an autonomous, stateless processing unit with well-defined JSON input/output contracts. The system follows the \textit{Coordinator-Worker} pattern: the Streamlit frontend acts as the coordinator, sequentially invoking each agent phase while providing real-time progress feedback to the user.
+
+The architectural philosophy is grounded in three principles:
+
+\begin{enumerate}[label=\arabic*., leftmargin=2cm]
+\item \textbf{Statelessness:} Each agent function accepts all required inputs as parameters and returns a complete result dictionary. No inter-agent shared state exists---agents communicate exclusively through structured JSON passed via the coordinator.
+
+\item \textbf{Fault Tolerance:} Every agent implements multi-model failover chains (e.g., Qwen3-32B $\rightarrow$ Llama-3.1-8B $\rightarrow$ Llama-3.3-70B), per-model retry logic, rate-limit detection with immediate model switching, and graceful degradation on total failure.
+
+\item \textbf{Quality Maximization:} The tournament-based approach ensures that each output represents the best achievable quality from the current model ensemble, as validated by an independent LLM judge.
+\end{enumerate}
+
+Fig~\ref{fig:system_arch} illustrates the end-to-end system architecture.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    node distance=0.8cm and 1.2cm,
+    agent/.style={rectangle, draw, fill=purple!15, text width=2.8cm, minimum height=1.5cm, align=center, rounded corners=4pt, font=\small\bfseries},
+    io/.style={rectangle, draw, fill=green!10, text width=2.5cm, minimum height=1cm, align=center, rounded corners=4pt, font=\small},
+    process/.style={rectangle, draw, fill=orange!10, text width=2.8cm, minimum height=1cm, align=center, rounded corners=4pt, font=\small},
+    arr/.style={-{Latex[length=2.5mm]}, thick},
+]
+% Input
+\node[io] (input) {User Input\\Topic, Domain};
+% Research Agents
+\node[agent, below=1cm of input, xshift=-3.5cm] (ra1) {Research Agent\\(Historical)};
+\node[agent, below=1cm of input] (ra2) {Research Agent\\(State-of-Art)};
+\node[agent, below=1cm of input, xshift=3.5cm] (ra3) {Research Agent\\(Emerging)};
+% Methodology
+\node[agent, below=1.5cm of ra2] (meth) {Methodology\\Agent};
+% Visualizer
+\node[agent, below=1.2cm of meth, xshift=-2.5cm] (viz) {Visualizer\\Agent};
+% Report
+\node[agent, below=1.2cm of meth, xshift=2.5cm] (inv) {Invoice/Report\\Agent};
+% AutoResearch
+\node[agent, below=1.2cm of viz, xshift=1.25cm] (auto) {AutoResearch\\Agent};
+% Output
+\node[io, below=1cm of auto] (output) {PDF + MD + PNG\\Artifacts};
+
+% Arrows
+\draw[arr] (input) -- (ra1);
+\draw[arr] (input) -- (ra2);
+\draw[arr] (input) -- (ra3);
+\draw[arr] (ra1) -- (meth);
+\draw[arr] (ra2) -- (meth);
+\draw[arr] (ra3) -- (meth);
+\draw[arr] (meth) -- (viz);
+\draw[arr] (meth) -- (inv);
+\draw[arr] (viz) -- (auto);
+\draw[arr] (inv) -- (auto);
+\draw[arr] (auto) -- (output);
+\end{tikzpicture}
+\caption{Multi-Agent System Architecture}
+\label{fig:system_arch}
+\end{figure}
+
+\section{Algorithm of Proposed System}
+
+The core algorithmic innovation is the \textbf{Tournament-Based Parallel Research with LLM-as-Judge Selection}. Algorithm~\ref{alg:tournament} formalizes this process.
+
+\begin{algorithm}[H]
+\caption{Tournament-Based Research Agent Execution}
+\label{alg:tournament}
+\begin{algorithmic}[1]
+\Require Topic $\mathcal{T}$, Domain $\mathcal{D}$, Role $\mathcal{R}$, NumExperiments $N=3$
+\Ensure Best research output $\mathcal{O}^*$ with maximum quality score
+\State $\mathcal{O}^* \gets \text{null}$, $s^* \gets -1$
+\For{$i = 0$ to $N-1$} \Comment{Parallel via ThreadPoolExecutor}
+    \State $T_i \gets 0.2 + i \times 0.2$ \Comment{Vary temperature}
+    \State $P_i \gets \text{BuildPrompt}(\mathcal{T}, \mathcal{D}, \mathcal{R}) + \text{Constraint}_i$
+    \State $\hat{y}_i \gets \text{CallLLM}(P_i, \mathcal{R}, T_i)$ \Comment{With multi-model failover}
+    \State $o_i \gets \text{ExtractJSON}(\hat{y}_i)$ \Comment{Balanced-brace extraction + repair}
+    \State $s_i, f_i \gets \text{EvaluateResearch}(o_i, \mathcal{T}, \mathcal{R})$ \Comment{LLM-as-Judge}
+    \If{$s_i > s^*$}
+        \State $s^* \gets s_i$, $\mathcal{O}^* \gets o_i$
+    \EndIf
+\EndFor
+\State $\mathcal{O}^* \gets \text{EnsureDefaults}(\mathcal{O}^*, \mathcal{T}, \mathcal{D}, \mathcal{R})$
+\State \Return $\mathcal{O}^*$
+\end{algorithmic}
+\end{algorithm}
+
+The \textbf{JSON Extraction with Truncation Repair} algorithm handles the common failure mode where LLM outputs produce malformed or truncated JSON:
+
+\begin{algorithm}[H]
+\caption{Balanced-Brace JSON Extraction with Truncation Repair}
+\label{alg:json}
+\begin{algorithmic}[1]
+\Require Raw LLM output string $s$
+\Ensure Parsed JSON dictionary $d$
+\State $s \gets \text{StripThinkTags}(s)$ \Comment{Remove $<$think$>$...$<$/think$>$ blocks}
+\State $s \gets \text{StripCodeFences}(s)$ \Comment{Remove \texttt{```json} wrappers}
+\State \textbf{try} $d \gets \text{json.loads}(s)$; \textbf{return} $d$
+\State $\text{start} \gets s.\text{find}(\text{`\{'})$; $\text{depth} \gets 0$; $\text{in\_str} \gets \text{false}$
+\For{$\text{idx} = \text{start}$ to $|s|-1$}
+    \State Track string state, brace depth, bracket depth
+    \If{$\text{depth} = 0$ \textbf{and} $s[\text{idx}] = \text{`\}'}$}
+        \State \Return $\text{json.loads}(s[\text{start}:\text{idx}+1])$ \Comment{Balanced extraction}
+    \EndIf
+\EndFor
+\State $\text{repair} \gets s[\text{start}:]$ \Comment{Truncated: close open structures}
+\State Close unclosed strings, arrays, objects in reverse stack order
+\State \Return $\text{json.loads}(\text{repair})$
+\end{algorithmic}
+\end{algorithm}
+
+\section{Working Example of Proposed System}
+
+This section traces a complete execution of the system for the input topic \textit{``Transformer Architectures for Natural Language Processing''} in the domain \textit{``Computer Science''} with a 5-year lookback.
+
+\textbf{Phase 1 --- Research (3--5 minutes):} The coordinator invokes \texttt{run\_research\_agent()} three times sequentially (with 1-second cooldown between calls to avoid rate limiting). Each call internally spawns $N=3$ parallel experiments:
+
+\begin{itemize}[leftmargin=2cm]
+\item \textbf{Historical Agent:} Produces 850-word summary tracing evolution from RNNs (Elman, 1990) through LSTMs (Hochreiter \& Schmidhuber, 1997) to Transformers (Vaswani et al., 2017). Tournament winner scores 87/100.
+\item \textbf{State-of-the-Art Agent:} Analyzes current SOTA including GPT-4 (OpenAI, 2023), Llama-3 (Meta, 2024), and Gemini (Google, 2024). Includes specific benchmark numbers: MMLU 86.4\%, HumanEval 67.0\%. Winner scores 91/100.
+\item \textbf{Emerging Agent:} Covers frontier research: Mamba (Gu \& Dao, 2023), RWKV (Peng et al., 2023), Mixture-of-Experts routing. Winner scores 84/100.
+\end{itemize}
+
+\textbf{Phase 1.5 --- Methodology Enhancement (2--3 minutes):} The Methodology Agent processes the top 2 future research directions from each agent (6 total), generating detailed proposals. For instance: ``Compositional Generalization via Neuro-Symbolic Hybrid Architectures'' receives a methodology score of 88/100, with 10 pipeline steps, specific loss function formulations, and quantitative targets.
+
+\textbf{Phase 2 --- Visualization (2--5 minutes):} The Visualizer Agent renders three diagram types---Architecture (layered system design), Workflow (6-step pipeline), and Methods grid (12--16 key techniques). A random theme is selected (e.g., ``Midnight Ocean''), and all diagrams use consistent visual identity. Total rendering produces $\sim$6 PNG files at 3200$\times$2000+ resolution.
+
+\textbf{Phase 3 --- Report Synthesis (2--3 minutes):} The Invoice Agent receives all research outputs and diagram metadata, executing up to 2 self-correction iterations per model. The final report achieves a peer-review score of 92/100 and contains: Executive Abstract (800+ words), Historical Foundations (1000+ words), State-of-the-Art Analysis (1200+ words), Literature Survey Table (15--20 papers), System Architecture analysis, Future Methodologies (5--8 proposals), Technical Appendix, and References (20+ entries). Total output: 6000+ words.
+
+\textbf{Phase 4 --- Export:} The system generates downloadable Markdown (.md) and PDF files, along with all PNG diagram artifacts. Total pipeline duration: approximately 10--15 minutes of autonomous execution.

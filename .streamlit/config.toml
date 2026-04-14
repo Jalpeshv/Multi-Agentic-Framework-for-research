@@ -1,0 +1,33 @@
+[server]
+# Prevent Streamlit from killing long-running pipelines
+# 0 = no timeout (infinite) — critical for multi-agent pipeline
+scriptRunTimeout = 0
+
+# WebSocket settings to prevent false disconnects
+enableWebsocketCompression = false
+maxUploadSize = 200
+
+# Increase max message size (default 200MB)
+maxMessageSize = 200
+
+# Enable XSRF protection
+enableXsrfProtection = false
+
+# Headless mode for production
+headless = true
+
+# Static file serving (reduce re-renders)
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false
+
+# Don't auto-open browser on every restart
+serverAddress = "localhost"
+
+[runner]
+# Fast reroute for re-runs
+fastReroute = true
+
+# Magic is disabled for performance
+magicEnabled = false

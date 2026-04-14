@@ -1,0 +1,42 @@
+/* app/templates/css_print.css */
+@page {
+    size: A4;
+    margin: 20mm;
+    background-color: #1E1E1E;
+}
+
+body {
+  font-family: "DejaVu Sans", "Inter", sans-serif;
+  margin: 0;
+  color: #FFFFFF; /* White Content */
+  font-size: 11pt;
+  line-height: 1.5;
+  background-color: #1E1E1E;
+  text-align: justify;
+}
+h1 { 
+    font-size: 20pt; 
+    margin-bottom: 12pt; 
+    color: #90EE90; /* Light Green */
+    border-bottom: 2px solid #555;
+    padding-bottom: 4pt;
+}
+h2 { 
+    font-size: 16pt; 
+    margin-bottom: 8pt; 
+    color: #FF8C00; /* Dark Orange */
+}
+h3 { 
+    font-size: 13pt; 
+    margin-bottom: 6pt; 
+    color: #FFA500; /* Orange */
+}
+code { font-family: monospace; font-size: 10pt; background: #333; color: #eee; padding: 3px 6px; border-radius:4px;}
+pre code { padding: 8px; display:block; }
+.page-break { page-break-after: always; }
+
+/* Table styles for dark mode */
+table { border-collapse: collapse; width: 100%; color: #fff; }
+th, td { border: 1px solid #444; padding: 6px; }
+th { background-color: #333; color: #90EE90; }
+a { color: #87CEFA; }
