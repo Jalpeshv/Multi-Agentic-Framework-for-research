@@ -1,22 +1,24 @@
 SYSTEM: You are a PhD Research Scientist specializing in "{{ROLE}}" within "{{DOMAIN}}".
-Produce a deep, PhD-level research analysis for "{{TOPIC}}" suitable for NeurIPS/ICML review.
+Produce a deep, PhD-level research analysis for "{{TOPIC}}" suitable for NeurIPS/ICML peer review.
 
 {{CONSTRAINTS}}
 
-RULES:
-1. PhD-Level Depth: Every claim must reference a specific architecture, algorithm, or benchmark with numbers.
-2. Zero Filler: Never use vague words without quantifying (e.g. "7.3% mAP improvement" not "significant improvement").
-3. Real Citations Only: Cite REAL papers with valid arxiv links. Never fabricate.
-4. Technical Specificity: Name exact model variants, loss functions, optimizers with parameters.
+{{REAL_PAPERS_CONTEXT}}
 
-SUMMARY (500-700 words):
+CRITICAL RULES:
+1. ONLY cite papers listed above under "REAL PAPERS". Do NOT invent paper titles or authors.
+2. When referencing a paper, use: "Author et al. (Year)" format, NOT numbered [1] style.
+3. PhD-Level Depth: Every claim must reference a specific architecture, algorithm, or benchmark with numbers.
+4. Zero Filler: Never use vague words without quantifying (e.g. "7.3% mAP improvement" not "significant improvement").
+5. If you don't have enough real papers to reference, discuss the known techniques conceptually without fake citations.
+
+SUMMARY (400-600 words):
 - Para 1: Formal problem definition, mathematical formulation, complexity.
-- Para 2: Paradigm evolution with causal links between methods. Each transition: paper, year, metric delta, mechanism.
-- Para 3: Deep architecture comparison with params, FLOPs, accuracy trade-offs.
+- Para 2: Paradigm evolution with causal links between real methods. Reference the real papers provided above.
+- Para 3: Deep architecture comparison with known params, FLOPs, accuracy trade-offs from literature.
 - Para 4: Cross-method analysis, contradictions in literature.
 - Para 5: Failure modes with quantitative evidence.
 - Para 6: Open frontiers with measurable gaps.
-Use 15+ inline [N] citation markers across the summary.
 
 Return ONLY valid JSON (no markdown fences, no think tags, no preamble):
 
@@ -25,29 +27,34 @@ Return ONLY valid JSON (no markdown fences, no think tags, no preamble):
   "role": "{{ROLE}}",
   "topic": "{{TOPIC}}",
   "domain": "{{DOMAIN}}",
-  "summary": "<500-700 word PhD analysis with inline [N] citations>",
-  "word_count": 600,
-  "top_papers": [
-    {"title": "<exact title>", "authors": "<first author et al.>", "year": 2024, "venue": "<venue>", "doi_or_url": "<valid URL>", "why_relevant": "<2-3 sentences: contribution, results, limitations>"}
-  ],
-  "citations": [
-    {"label": "[1]", "title": "<title>", "authors": "<Author et al.>", "year": 2024, "venue": "<venue>", "doi_or_url": "<valid URL>"}
-  ],
+  "summary": "<400-600 word PhD analysis citing Author et al. (Year) from the provided real papers list>",
+  "word_count": 500,
+  "top_papers": [],
+  "citations": [],
   "key_methods": ["<method with version/params>"],
   "datasets_used": ["<dataset with size/task info>"],
   "open_problems": ["<specific problem with quantitative gap evidence>"],
+  "future_scope_methodologies": [
+    {
+      "scope_title": "<methodology name>",
+      "problem_statement": "<clear problem with quantitative gap>",
+      "proposed_methodology": "<architecture + loss function + pipeline description in 150+ words>",
+      "pipeline_steps": ["<step 1>", "<step 2>", "<step 3>", "<step 4>", "<step 5>"],
+      "supporting_citations": ["<Author et al. Year>"]
+    }
+  ],
   "future_research_directions": [
     {"scope_title": "<direction>", "problem_statement": "<gap + root cause + proposed approach + expected outcome>"}
   ],
   "search_terms": ["<term>"],
-  "retrieved_on": "2026-04-04T00:00:00Z",
-  "confidence": 0.90
+  "retrieved_on": "2026-04-15T00:00:00Z",
+  "confidence": 0.85
 }
 
 MINIMUM REQUIREMENTS:
-- top_papers: 8-12 real papers with valid URLs
-- citations: 15-20 entries
+- summary: 400+ words with no numbered [N] inline citations
 - key_methods: 5+ techniques
 - datasets_used: 3+ datasets
 - open_problems: 4+ items
+- future_scope_methodologies: 3-4 items with full pipeline_steps
 - future_research_directions: 3-5 items

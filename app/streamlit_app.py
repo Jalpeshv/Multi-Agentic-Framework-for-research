@@ -546,9 +546,20 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
 
                 import re as _re
                 def _clean_llm_text(text):
-                    if not text: return ""
-                    text = _re.sub(r'\s*\[\d+\]', '', text)
-                    text = _re.sub(r'Access Full Paper', '', text)
+                    """Strip LLM hallucination artifacts: fake [N] citations, fake URLs, etc."""
+                    if not text:
+                        return ""
+                    # Remove numbered inline citations like [1], [2,3], [1-4]
+                    text = _re.sub(r'\s*\[\d+(?:[,\-]\d+)*\]', '', text)
+                    # Remove 'Access Full Paper' or 'Access Paper' links
+                    text = _re.sub(r'Access Full Paper', '', text, flags=_re.IGNORECASE)
+                    text = _re.sub(r'Access Paper', '', text, flags=_re.IGNORECASE)
+                    # Remove bare markdown links with fake URLs like [text](url)
+                    # But keep google scholar links we generate ourselves
+                    text = _re.sub(r'\[([^\]]+)\]\(https?://[^\)]*arxiv[^\)]*\)', r'\1', text)
+                    # Collapse multiple spaces/newlines
+                    text = _re.sub(r'\n{3,}', '\n\n', text)
+                    text = _re.sub(r'  +', ' ', text)
                     return text.strip()
 
                 sections = []
@@ -774,7 +785,7 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 st.subheader("4. Autonomous Research Experiment (Beta)")
                 
                 with st.expander("🚀 Launch Autonomous Validation Loop", expanded=False):
-                    st.info("This module runs the autonomous iterative optimization loop using `autoresearch/train.py` (based on [karpathy/autoresearch](https://github.com/karpathy/autoresearch)).")
+                    st.info("This module runs an autonomous iterative optimization loop. It will research your topic, generate experiments, and produce a validation report.")
                     ar_time = st.slider("Experiment Duration (Minutes)", 1, 60, 5)
                     
                     if st.button("Start Autoresearch Experiment"):

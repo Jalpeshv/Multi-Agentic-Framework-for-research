@@ -145,18 +145,19 @@ def autonomous_pipeline(topic: str, domain: str, system_category: str):
 
 if __name__ == "__main__":
     print_status("Welcome to the Autonomous Research Worker")
-    print_status("Drop your research topics here. I'll research, extract architecture, and plot PaperBanana diagrams overnight.")
+    print_status("Edit the AGENDA list below to add your research topics.")
     print("-" * 60)
     
-    # You can add as many topics here as you want the agent to grind through
+    # Add your own topics here
     AGENDA = [
         {
-            "topic": "Andrej Karpathy's Autoresearch: Autonomous AI Agent Swarms for Single-GPU Nanochat LLM Training", 
-            "domain": "computer science", 
+            "topic": "Graph Neural Networks for Memory-Efficient Training",
+            "domain": "computer science",
             "category": "AI & Machine Learning"
         }
     ]
     
     for item in AGENDA:
         autonomous_pipeline(item["topic"], item["domain"], item["category"])
-        time.sleep(10)  # Cooldown between massive topics
+        time.sleep(10)  # Cooldown between topics
+

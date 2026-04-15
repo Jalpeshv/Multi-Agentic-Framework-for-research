@@ -52,18 +52,6 @@ def convert_markdown_to_pdf(md_path: str, output_pdf_path: str):
             @page {{
                 size: a4 portrait;
                 margin: 2.5cm;
-                @top-center {{
-                    content: "Research Report";
-                    font-family: serif;
-                    font-size: 9pt;
-                    color: #666;
-                }}
-                @bottom-center {{
-                    content: "Page " counter(page);
-                    font-family: serif;
-                    font-size: 9pt;
-                    color: #666;
-                }}
             }}
             
             body {{
@@ -139,6 +127,8 @@ def convert_markdown_to_pdf(md_path: str, output_pdf_path: str):
         if pisa_status.err:
             print(f"Warning: PDF generated with {pisa_status.err} errors", file=sys.stderr)
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"WARNING: PDF first attempt failed: {e}, retrying without tables...", file=sys.stderr)
         # Fallback: strip HTML tables entirely
         simple_html = re.sub(r'<table.*?</table>', '<p><em>[Table: see markdown report for full data]</em></p>', full_html, flags=re.DOTALL)
@@ -146,6 +136,7 @@ def convert_markdown_to_pdf(md_path: str, output_pdf_path: str):
             with open(output_pdf_path, "wb") as result_file:
                 pisa.CreatePDF(src=simple_html, dest=result_file)
         except Exception as e2:
+            traceback.print_exc()
             raise RuntimeError(f"PDF generation failed: {e2}")
 
     return output_pdf_path
