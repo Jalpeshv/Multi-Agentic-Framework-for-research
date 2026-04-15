@@ -131,34 +131,55 @@ def run_methodology_agent(topic: str, domain: str, scope_item: dict, context_sum
     scope_title = scope_item.get("scope_title", "Unknown Scope")
     problem_stmt = scope_item.get("problem_statement", "No problem statement provided.")
 
-    prompt = f"""You are a Senior Research Architect designing a technical methodology for a PhD-level research proposal.
+    prompt = f"""You are a Senior Research Architect at a top AI lab, designing a rigorous methodology for a PhD research proposal.
 
 TOPIC: {topic}
 DOMAIN: {domain}
-SCOPE: {scope_title}
-PROBLEM: {problem_stmt}
+RESEARCH DIRECTION: {scope_title}
+PROBLEM STATEMENT: {problem_stmt}
 
-CONTEXT FROM PRIOR RESEARCH:
-{context_summaries[:3000]}
+PRIOR RESEARCH CONTEXT (from 3 agents):
+{context_summaries[:2500]}
 
-TASK: Create a comprehensive methodology proposal. Output strict JSON only. No markdown fences around the JSON.
+━━━━━━━━━━━━━━━━
+YOUR TASK:
+━━━━━━━━━━━━━━━━
+Design a SINGLE, COMPLETE, DEEPLY REASONED methodology for this research direction.
+This is the ONLY methodology in the entire report — make it comprehensive.
 
-JSON SCHEMA:
+Requirements:
+1. Architecture: Name specific model components (e.g., "3-layer GCN with 256 hidden units"), not vague terms
+2. Loss function: Write the exact mathematical form or exact name (e.g., "L = α·CE + β·MSE where α=0.7, β=0.3")
+3. Baseline comparison: Name at least 2 real SOTA methods to compare against
+4. Dataset: Name real benchmark datasets appropriate for this problem
+5. Expected results: Concrete quantitative targets (accuracy ≥ X%, latency ≤ Y ms, memory reduction Z%)
+6. Pipeline: 8-10 clear, specific steps — not generic ("preprocess data" but "normalize adjacency matrix using symmetric normalization D^{-1/2} A D^{-1/2}")
+
+Output strict JSON only. No markdown. Start with {{ end with }}.
+
 {{
   "scope_title": "{scope_title}",
   "problem_statement": "{problem_stmt}",
-  "proposed_methodology": "<string: 300-500 words. Detailed technical methodology. Include: (1) Architecture — specific layers, modules, loss functions. (2) Pipeline — data preprocessing, training, evaluation steps. (3) Expected Outcome — quantitative targets (accuracy, F1, latency). Use specific technical terms, not vague generalities.>",
-  "pipeline_steps": ["<string: Step 1 description>", "<string: Step 2 description>", "... 6-10 steps"],
-  "supporting_citations": ["<string: relevant paper or technique name>"],
+  "proposed_methodology": "<400-600 words. Name exact architectures, modules, loss functions, optimizers. Reference real techniques. Describe how the methodology solves the stated problem. Include quantitative targets.>",
+  "architecture_details": "<100-200 words describing the specific model architecture layers, sizes, activations>",
+  "loss_function": "<exact loss function description or formula>",
+  "baseline_methods": ["<real SOTA method 1>", "<real SOTA method 2>"],
+  "evaluation_datasets": ["<real dataset 1 with task>", "<real dataset 2 with task>"],
+  "expected_outcomes": {{"accuracy": "<target>", "f1": "<target>", "latency": "<target>", "memory_reduction": "<target if applicable>"}},
+  "pipeline_steps": [
+    "<Step 1: Specific data preprocessing — what exact operation>",
+    "<Step 2: ...>",
+    "<Step 3: ...>",
+    "<Step 4: ...>",
+    "<Step 5: ...>",
+    "<Step 6: ...>",
+    "<Step 7: ...>",
+    "<Step 8: ...>"
+  ],
+  "supporting_citations": ["<Author et al. Year - paper title>"],
   "novelty_score": 0.85,
   "feasibility_score": 0.80
 }}
-
-CRITICAL RULES:
-- The pipeline_steps field must be a plain JSON array of 6-10 short step descriptions for the methodology pipeline.
-- DO NOT include any Mermaid syntax or diagram markup. Only plain text pipeline steps.
-- The methodology must be PhD-caliber: specific architectures, loss functions, quantitative targets.
-- Start your response directly with {{ and end with }}. No headers.
 /no_think"""
 
     sys_msg = (
