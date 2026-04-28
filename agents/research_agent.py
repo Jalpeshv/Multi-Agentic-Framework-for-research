@@ -50,17 +50,18 @@ def _get_search_queries(topic: str, domain: str) -> list[str]:
     prompt = (
         f"You are helping find academic papers on: \"{topic}\" (domain: {domain}).\n\n"
         f"Generate 5 OpenAlex search queries that will find REAL published research papers "
-        f"specifically about the core technical concepts in this topic.\n\n"
+        f"specifically about \"{topic}\".\n\n"
         f"Rules:\n"
-        f"- Use precise technical CS/AI vocabulary (e.g. 'knowledge graph embedding', 'GNN training', 'graph DBMS')\n"
-        f"- First 2 queries: most specific (5-7 keyword terms)\n"
-        f"- Next 2 queries: broader but topically accurate (3-5 terms)\n"
-        f"- Last query: very broad fallback (2-3 key technical nouns)\n"
-        f"- Do NOT use vague terms like 'study', 'research', 'analysis'\n"
-        f"- Focus on: algorithms, systems, architectures, benchmarks relevant to the topic\n\n"
+        f"- EVERY query MUST contain at least one core word from \"{topic}\"\n"
+        f"- Use precise technical vocabulary appropriate for the '{domain}' domain.\n"
+        f"- First 2 queries: most specific (5-7 keyword terms combining '{topic}' with related techniques)\n"
+        f"- Next 2 queries: moderately specific (3-5 terms, still clearly about '{topic}')\n"
+        f"- Last query: simplest form of the topic (2-3 words, but MUST still be about '{topic}')\n"
+        f"- Do NOT use single generic words like 'machine learning', 'deep learning', 'neural network' alone\n"
+        f"- Do NOT use vague terms like 'study', 'research', 'analysis', 'survey'\n"
+        f"- Focus on: specific methods, algorithms, architectures, or theories directly related to '{topic}'\n\n"
         f"Return ONLY a JSON array of 5 strings.\n"
-        f"Example: [\"knowledge graph embedding scalable training\", \"graph store SPARQL query optimization\", "
-        f"\"graph database indexing RDF\", \"knowledge graph neural network\", \"graph embedding\"]\n"
+        f"Example for 'Physical AI': [\"physical AI embodied intelligence manipulation\", \"physics-informed neural networks simulation\", \"robotic physical interaction learning\", \"embodied AI physical world\", \"physical artificial intelligence\"]\n"
         f"/no_think"
     )
     try:
@@ -91,26 +92,86 @@ def _get_search_queries(topic: str, domain: str) -> list[str]:
     ]
 
 
-def _is_likely_off_topic(title: str, domain: str) -> bool:
+def _is_likely_off_topic(title: str, domain: str, topic: str = "") -> bool:
     """
-    Heuristic: if a paper title looks like it belongs to a completely different
-    scientific domain, skip it. Prevents bioinformatics/particle physics/medical papers
-    from polluting CS results.
+    Two-level off-topic filter:
+      Level 1: Domain noise — hard exclusion for papers from unrelated scientific fields
+      Level 2: Topic relevance — reject papers sharing zero meaningful words with the topic
     """
     title_lower = title.lower()
-    # Domain-specific noise patterns to exclude for CS/AI topics
-    if domain.lower() in ("computer science", "ai & machine learning", "artificial intelligence", "machine learning"):
-        noise_patterns = [
-            "protein", "genome", "dna", "rna", "cell", "cancer", "tumor",
-            "drug", "clinical", "patient", "medical", "covid", "vaccine",
-            "particle physics", "quantum gravity", "galaxy", "astronomy",
-            "earthquake", "seismic", "weather", "climate", "wind speed",
-            "slam3", "visual-inertial", "3d scene", "speech recognition toolkit",
-            "structure building and analysis",  # ChimeraX-style
-        ]
-        for pattern in noise_patterns:
-            if pattern in title_lower:
+    
+    # ─── Level 1: Domain-based noise exclusion ───
+    # These patterns indicate papers from entirely different scientific fields
+    universal_noise = [
+        "protein", "genome", "dna", "rna", "cell biology", "cancer", "tumor",
+        "drug discovery", "clinical trial", "patient", "medical imaging",
+        "covid", "vaccine", "sars-cov", "pandemic",
+        "particle physics", "quantum gravity", "galaxy", "astronomy", "cosmolog",
+        "earthquake", "seismic", "weather forecast", "climate model", "wind speed",
+        "surgery", "pathology", "diagnosis", "therapeutic",
+        "pest control", "crop yield", "soil", "irrigation",
+        "building information model", "bim", "construction management",
+    ]
+    for pattern in universal_noise:
+        if pattern in title_lower:
+            return True
+    
+    # ─── Level 2: Topic keyword relevance ───
+    # Requires at least one meaningful topic keyword to appear in the paper title.
+    # This prevents completely unrelated papers from polluting results.
+    if topic:
+        # Important short acronyms that should NOT be filtered by length
+        known_acronyms = {
+            "ai", "ml", "nlp", "cv", "rl", "gnn", "cnn", "rnn", "llm",
+            "iot", "ar", "vr", "xr", "3d", "2d", "gan", "vae", "drl",
+        }
+        
+        stop_words = {
+            "the", "a", "an", "of", "for", "in", "and", "or", "to", "by", "on",
+            "at", "is", "are", "was", "that", "this", "with", "using", "through",
+            "based", "towards", "toward", "new", "novel", "approach", "study",
+            "research", "analysis", "review", "survey", "method", "model",
+            "system", "framework",
+        }
+        
+        topic_words = set()
+        for w in topic.split():
+            wl = w.lower().strip(".,;:!?")
+            if wl in known_acronyms:
+                topic_words.add(wl)
+            elif len(wl) > 3 and wl not in stop_words:
+                topic_words.add(wl)
+        
+        # Activate for ANY topic with 1+ meaningful keywords
+        if len(topic_words) >= 1:
+            title_words_raw = title_lower.split()
+            title_words = {w.strip(".,;:!?()[]") for w in title_words_raw}
+            title_text = title_lower  # for substring matching
+            
+            has_match = False
+            for tw in topic_words:
+                # Exact word match
+                if tw in title_words:
+                    has_match = True
+                    break
+                # Substring match: "physical" in "physical-aware", "ai" in "ai-driven"
+                if any(tw in word for word in title_words):
+                    has_match = True
+                    break
+                # Stem match for longer words: "physic" matches "physics", "physical"
+                if len(tw) >= 5 and any(word.startswith(tw[:5]) for word in title_words if len(word) >= 4):
+                    has_match = True
+                    break
+                # For short words (acronyms), check as standalone or hyphenated
+                if len(tw) <= 3:
+                    # "ai" should match "ai-based", "ai-driven", etc.
+                    if tw in title_text or f"-{tw}" in title_text or f"{tw}-" in title_text:
+                        has_match = True
+                        break
+            
+            if not has_match:
                 return True
+    
     return False
 
 
@@ -161,8 +222,8 @@ def _fetch_real_papers(topic: str, domain: str, years: int = 5, limit: int = 15)
                     continue
                 seen_ids.add(work_id)
 
-                # Skip off-topic papers (bioinformatics, physics, medical for CS topics)
-                if _is_likely_off_topic(title, domain):
+                # Skip off-topic papers (domain noise + topic keyword relevance)
+                if _is_likely_off_topic(title, domain, topic=topic):
                     print(f"DEBUG: [openalex] Skipping off-topic: {title[:50]}", file=sys.stderr)
                     continue
 
@@ -288,6 +349,8 @@ def extract_json_only(text: str) -> dict:
     if not text:
         raise ValueError("Empty response")
     cleaned = strip_think_tags(text)
+    
+    # Strategy 1: Direct parse (with/without code fences)
     for candidate in [
         re.sub(r'^\s*```+(?:json)?\s*\n*', '', re.sub(r'\n*\s*```+\s*$', '', cleaned)).strip(),
         cleaned,
@@ -296,12 +359,57 @@ def extract_json_only(text: str) -> dict:
             return json.loads(candidate, strict=False)
         except Exception:
             pass
+    
+    # Strategy 2: Balanced brace extraction
     b = _balanced_extract(cleaned)
     if b:
         try:
             return json.loads(b, strict=False)
         except Exception:
             pass
+    
+    # Strategy 3: Truncated JSON repair — the LLM ran out of tokens mid-JSON
+    # Find the opening brace and try progressively closing unclosed structures
+    start = cleaned.find("{")
+    if start != -1:
+        fragment = cleaned[start:]
+        # Count unclosed braces/brackets
+        open_braces = fragment.count("{") - fragment.count("}")
+        open_brackets = fragment.count("[") - fragment.count("]")
+        
+        # Strip trailing incomplete values (comma, colon, partial strings)
+        repair = fragment.rstrip()
+        # Remove trailing partial string content
+        if repair.endswith(","):
+            repair = repair[:-1]
+        # Remove incomplete key-value pairs after last comma
+        last_complete = max(repair.rfind("}"), repair.rfind("]"), repair.rfind('"'))
+        if last_complete > 0 and last_complete < len(repair) - 1:
+            repair = repair[:last_complete + 1]
+        # Strip trailing commas again after truncation
+        repair = repair.rstrip().rstrip(",")
+        # Close structures
+        repair += "]" * max(0, open_brackets)
+        repair += "}" * max(0, open_braces)
+        
+        try:
+            return json.loads(repair, strict=False)
+        except Exception:
+            pass
+        
+        # More aggressive: cut back to last complete key-value and close
+        for trim_char in [",", '"']:
+            idx = repair.rfind(trim_char)
+            if idx > start + 10:
+                aggressive = repair[:idx].rstrip().rstrip(",")
+                ob = aggressive.count("{") - aggressive.count("}")
+                ob2 = aggressive.count("[") - aggressive.count("]")
+                aggressive += "]" * max(0, ob2) + "}" * max(0, ob)
+                try:
+                    return json.loads(aggressive, strict=False)
+                except Exception:
+                    pass
+    
     raise ValueError(f"Cannot parse JSON. First 200 chars: {text[:200]}")
 
 
@@ -331,7 +439,7 @@ def _ensure_defaults(parsed: dict, topic: str, domain: str, role: str) -> dict:
 #  MAIN ENTRY POINT
 # ─────────────────────────────────────────────────────────────
 
-def run_research_agent(topic: str, domain: str, role: str, years: int = None) -> dict:
+def run_research_agent(topic: str, domain: str, role: str, years: int = None, max_papers: int = 5) -> dict:
     """
     Research agent:
     1. Uses Groq to generate optimal OpenAlex search queries
@@ -340,9 +448,9 @@ def run_research_agent(topic: str, domain: str, role: str, years: int = None) ->
     4. LLM generates a pure academic analysis (NO methodology — that's separate)
     5. Real papers overwrite LLM-hallucinated citations
     """
-    # Step 1+2: Get real papers using LLM-optimized queries
-    print(f"DEBUG: [research] Fetching real papers for [{role}]...", file=sys.stderr)
-    real_papers = _fetch_real_papers(topic, domain, years=years or 5, limit=15)
+    # Step 1+2: Get real papers using LLM-optimized queries (capped by max_papers)
+    print(f"DEBUG: [research] Fetching real papers for [{role}] (max={max_papers})...", file=sys.stderr)
+    real_papers = _fetch_real_papers(topic, domain, years=years or 5, limit=max_papers)
 
     # Step 3: Build prompt with real papers as context
     base_prompt = build_prompt(topic, domain, role, years, real_papers)
@@ -351,6 +459,9 @@ def run_research_agent(topic: str, domain: str, role: str, years: int = None) ->
         + "\n\nCRITICAL: Only reference papers from the VERIFIED REAL PAPERS list above. "
         + "Do NOT invent paper titles, authors, or citation numbers. "
         + "Use 'Author et al. (Year)' style when citing.\n"
+        + "CRITICAL: Do NOT repeat the same sentences, conclusions, or paragraphs. "
+        + "Each section must contain unique, non-redundant content. "
+        + "Ensure high lexical diversity throughout.\n"
         + "/no_think Return ONE JSON object only. Start with { end with }."
     )
 
@@ -359,6 +470,7 @@ def run_research_agent(topic: str, domain: str, role: str, years: int = None) ->
         "Output STRICT JSON only. No markdown. No explanation. "
         "ONLY cite papers explicitly given to you. Never fabricate papers. "
         "Use 'Author et al. (Year)' citation style, NOT [1] numbers. "
+        "NEVER repeat the same paragraph or sentence. Each section MUST be unique. "
         "Start with { and end with }. /no_think"
     )
 
@@ -368,8 +480,10 @@ def run_research_agent(topic: str, domain: str, role: str, years: int = None) ->
             prompt=exp_prompt,
             role="worker",
             system_msg=sys_msg,
-            temperature=0.3,
-            timeout=90,
+            temperature=0.45,
+            timeout=180,
+            frequency_penalty=0.6,
+            agent_role=role,
         )
 
         parsed = extract_json_only(raw)

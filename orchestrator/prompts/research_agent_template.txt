@@ -11,12 +11,12 @@ STRICT RULES (violations = failure):
 1. ONLY cite papers from the "VERIFIED REAL PAPERS" list. NEVER invent papers.
 2. Use "Author et al. (Year)" style. NEVER use [1], [2] numbered citations.
 3. If a paper is off-topic (e.g., particle physics, medical imaging), do not force it — acknowledge it tangentially or skip.
-4. This section is ONLY for academic analysis. Do NOT generate methodology or pipeline steps here.
+4. CRITICAL: DO NOT propose any methodologies, experiments, or architectures. You are strictly a data-gathering researcher, not a methodology designer.
 5. Be specific: name exact architectures, loss functions, benchmarks, and numbers where known.
 
-━━━━━━━━━━━━
+━━━━━━━━━━
 ROLE FOCUS:
-━━━━━━━━━━━━
+━━━━━━━━━━
 - historical: Trace the evolution of the field. Foundational papers, paradigm shifts, 
   key algorithmic breakthroughs over time. Pure historical narrative.
 - state_of_the_art: Describe current best methods. Compare architectures by accuracy/FLOPs/memory.
@@ -24,40 +24,38 @@ ROLE FOCUS:
 - ongoing_emerging: Identify latest trends, open problems, active research frontiers.
   What gaps exist? What are researchers actively solving right now?
 
-WRITE A DETAILED ACADEMIC SUMMARY (500-700 words) for role "{{ROLE}}" covering:
-  Para 1: Formal problem definition and mathematical formulation
-  Para 2: Key developments relevant to {{ROLE}} period (cite real papers by Author et al. Year)
-  Para 3: Architectural comparisons, contradictions, and failure modes
-  Para 4: Open problems and measurable gaps left in this period
+WRITE A CONCISE ACADEMIC SUMMARY (200-250 words MAX) for role "{{ROLE}}" covering:
+  Para 1: Formal problem definition (2-3 sentences)
+  Para 2: Key developments relevant to {{ROLE}} period (cite real papers)
+  Para 3: Open problems and measurable gaps
 
-Return ONLY valid JSON (no markdown fences, no preamble):
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ CRITICAL: OUTPUT LENGTH LIMIT ⚠️
+Your ENTIRE JSON response MUST be under 2000 tokens.
+If you exceed this, your output WILL be truncated mid-JSON, breaking the pipeline.
+The "summary" field MUST be 200-250 words. NOT 500. NOT 700. EXACTLY 200-250.
+"top_papers": EXACTLY 5 entries max. Do NOT add more.
+"open_problems": EXACTLY 3 entries max.
+"key_methods": EXACTLY 4 entries max.
+"datasets_used": EXACTLY 3 entries max.
+BE CONCISE OR THE PIPELINE BREAKS.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Return ONLY valid JSON (no markdown fences, no preamble). Start with { end with }:
 
 {
   "agent_id": "research_{{ROLE}}_001",
   "role": "{{ROLE}}",
   "topic": "{{TOPIC}}",
   "domain": "{{DOMAIN}}",
-  "summary": "<500-700 word academic analysis. Author et al. (Year) citations only. NO methodology. NO pipeline steps.>",
-  "word_count": 600,
+  "summary": "<200-250 word academic analysis. Author et al. (Year) citations only. NO methodology proposals.>",
+  "word_count": 225,
   "top_papers": [],
   "citations": [],
-  "key_methods": ["<exact method name with parameters>"],
-  "datasets_used": ["<dataset name with size and task>"],
-  "open_problems": ["<specific problem with quantitative gap>"],
-  "future_research_directions": [
-    {
-      "scope_title": "<research direction title>",
-      "problem_statement": "<clear gap + root cause + why important>"
-    }
-  ],
+  "key_methods": ["<exact method name — MAX 4>"],
+  "datasets_used": ["<dataset name — MAX 3>"],
+  "open_problems": ["<specific problem with quantitative gap — MAX 3>"],
   "search_terms": ["<academic search term>"],
   "retrieved_on": "2026-04-15T00:00:00Z",
   "confidence": 0.85
 }
-
-MINIMUM:
-- summary: 500+ words, academic tone, only real paper citations
-- key_methods: 5+ items
-- datasets_used: 3+ items
-- open_problems: 4+ items
-- future_research_directions: 3-5 items (titles + problem statements only — NO methodology steps)

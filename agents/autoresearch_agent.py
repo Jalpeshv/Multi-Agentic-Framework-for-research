@@ -1,9 +1,9 @@
 # agents/autoresearch_agent.py
 """
 Autoresearch Agent — Hybrid Architecture.
-  • ORCHESTRATOR calls (code generation) → Groq (cloud, high intelligence)
+  • ORCHESTRATOR calls (code generation) → OpenRouter (cloud, high intelligence)
 
-Stays on Groq because code generation requires maximum quality.
+Stays on OpenRouter because code generation requires maximum quality.
 """
 
 import os
@@ -25,7 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 load_dotenv(PROJECT_ROOT / ".env")
 
-from agents.llm_client import _get_groq_client, strip_think_tags
+from agents.llm_client import _get_openrouter_client as _get_groq_client, strip_think_tags, _call_openrouter_api
 
 AUTORESEARCH_ROOT = PROJECT_ROOT / "autoresearch"
 TRAIN_FILE = AUTORESEARCH_ROOT / "train.py"
@@ -33,8 +33,8 @@ RESULTS_FILE = AUTORESEARCH_ROOT / "results.tsv"
 LOG_FILE = AUTORESEARCH_ROOT / "run.log"
 PROGRAM_FILE = AUTORESEARCH_ROOT / "program.md"
 
-# Use llama-3.1-8b-instant (available on Groq free tier)
-MODEL = "llama-3.1-8b-instant"
+# Use google/gemini-2.5-flash — best value on OpenRouter ($0.30/M, 1M context)
+MODEL = "google/gemini-2.5-flash"
 
 def _extract_python_code(text: str) -> str:
     """Correctly extract Python code from markdown blocks."""
@@ -62,9 +62,9 @@ def run_autoresearch(topic: str, domain: str = None, duration_minutes: int = 5) 
     if not AUTORESEARCH_ROOT.exists():
         return {"status": "failed", "error": "autoresearch folder missing"}
 
-    client = _get_groq_client()
+    client = _get_groq_client()  # Returns an OpenRouter API key
     if not client:
-        return {"status": "failed", "error": "No GROQ_API_KEY"}
+        return {"status": "failed", "error": "No OPENROUTER_API_KEY"}
 
     # Check for uv
     if shutil.which("uv") is None:
@@ -150,15 +150,15 @@ TASK:
 
 Your code must be flawless, robust, and mathematically deep. Output only valid Python syntax. /no_think"""
             try:
-                resp = client.chat.completions.create(
+                raw_output = _call_openrouter_api(
+                    api_key=client,
                     model=MODEL,
                     messages=[
                         {"role": "system", "content": "You are an autonomous AI writing performant PyTorch code."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=0.7
+                    temperature=0.7,
                 )
-                raw_output = resp.choices[0].message.content
                 generated_code = _extract_python_code(raw_output)
                 
                 if "Description:" in raw_output:

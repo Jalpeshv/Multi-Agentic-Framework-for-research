@@ -23,7 +23,7 @@ from agents.research_agent import run_research_agent
 from agents.invoice_agent import run_invoice_agent
 from agents.methodology_agent import run_methodology_agent
 from agents.visualizer_agent import run_visualizer_agent
-from agents.autoresearch_agent import run_autoresearch
+from orchestrator.pipeline_validator import PipelineValidator
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="AI Research Assistant", layout="wide")
@@ -76,7 +76,7 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 st.title("🎓 AI Research Assistant")
-st.markdown("**Scholar-ready research & PhD-grade reports — powered by multi-agent AI.**")
+st.markdown("**Generate comprehensive research reports using multi-agent AI.**")
 
 # Inject Custom CSS for Justified Text and Headings
 css_path = PROJECT_ROOT / "app" / "templates" / "custom_styles.html"
@@ -114,13 +114,11 @@ with st.sidebar:
         help="Select a system design category to shape the architecture diagrams and research focus."
     )
     
+    # Max papers per agent (prevents Groq TPM crash with too many papers)
+    max_papers = st.slider("Max Papers per Agent", min_value=3, max_value=8, value=5,
+                           help="Limit papers to stay within Groq free-tier token limits. Lower = faster & more reliable.")
+    
     st.markdown("---")
-    st.subheader("Experimental Features")
-    enable_autoresearch = st.checkbox("🔍 Enable Autonomous Code Experiment (AutoResearch)", value=False, help="Runs the iterative self-improving code experiment loop.")
-    ar_minutes = 5
-    if enable_autoresearch:
-        ar_minutes = st.slider("Experiment Duration (Minutes)", 1, 60, 5)
-
     generate_btn = st.button("Start Research Pipeline", type="primary")
     
     if st.button("Clear Cache & Reset"):
@@ -147,28 +145,25 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
             roles = ["historical", "state_of_the_art", "ongoing_emerging"]
             
             # --- PHASE 1: RESEARCH (ALL 3 AGENTS IN PARALLEL) ---
-            st.subheader(f"1. Researching: {topic} (Last {years_back} Years)")
+            st.subheader(f"Researching: {topic}")
             research_bar = st.progress(0)
-            status_box = st.status("Launching 3 research agents in PARALLEL...", expanded=True)
-            
-            status_box.write("**All 3 agents launching with Groq (cloud, ~3s each)**")
-            status_box.write("Ollama fallback only if Groq hits rate limits.")
+            status_box = st.status("Running research agents...", expanded=True)
             
             # Launch research agents with 3s stagger to avoid Groq 30 RPM limit
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=3)
             futures = {}
             for i, role in enumerate(roles):
                 if i > 0:
-                    time.sleep(3)  # Stagger to stay under Groq RPM limit
+                    time.sleep(8)  # Stagger to stay under OpenRouter RPM limit
                 f = pool.submit(
-                    run_research_agent, topic.strip(), domain.strip(), role, years_back
+                    run_research_agent, topic.strip(), domain.strip(), role, years_back, max_papers
                 )
                 futures[f] = role
             
             # Collect results as they complete (gracefully handle timeouts)
             completed = 0
             try:
-                for future in concurrent.futures.as_completed(futures, timeout=120):
+                for future in concurrent.futures.as_completed(futures, timeout=600):
                     role = futures[future]
                     role_name = role.replace("_", " ").title()
                     completed += 1
@@ -197,128 +192,65 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 research_bar.progress(1.0)
             
             pool.shutdown(wait=False)
+
+            # --- PHASE 1 VALIDATION ---
+            valid, msg = PipelineValidator.validate_phase1_research(research_outputs)
+            if not valid:
+                st.error(f"❌ Phase 1 Validation Failed: {msg}")
+                # st.stop()  # Disabled strict halt per user request
+                
             status_box.update(label=f"Research Phase Complete ({len(research_outputs)}/{len(roles)} agents)", state="complete", expanded=False)
 
-            # --- PHASE 1.5: METHODOLOGY ENHANCEMENT (ALL IN PARALLEL) ---
+            # --- PHASE 2: MASTER METHODOLOGY DESIGN (EXACTLY ONE) ---
             if research_outputs:
-                st.subheader("1.5. Enhancing Methodologies with Specialist Agent")
+                st.subheader("Designing Master Methodology")
+                gemini_box = st.status("Reviewing open gaps and generating methodology...", expanded=True)
                 
                 # Prepare context from all agents
                 context_summaries = ""
+                all_open_problems = []
                 for r in research_outputs:
                     role = r.get('role', 'Agent').title()
                     summary = r.get('summary', '')
                     context_summaries += f"\n--- INSIGHTS FROM {role} AGENT ---\n{summary}\n"
+                    opts = r.get('open_problems', [])
+                    if opts:
+                        all_open_problems.extend(opts)
 
-                gemini_box = st.status("Designing ALL methodologies in parallel...", expanded=True)
-                methodology_bar = st.progress(0)
-                
-                # Collect all scope items first
-                all_scope_tasks = []
-                for r_out in research_outputs:
-                    scopes = r_out.get('future_research_directions', [])[:2]
-                    for scope_item in scopes:
-                        all_scope_tasks.append((r_out, scope_item))
-                
-                total_scopes = len(all_scope_tasks)
-                gemini_box.write(f"**Launching {total_scopes} methodology agents in parallel...**")
-                
-                # Launch methodology agents with stagger for Groq RPM limit
-                meth_pool = concurrent.futures.ThreadPoolExecutor(max_workers=min(total_scopes, 2))
-                meth_futures = {}
-                for i, (r_out, scope_item) in enumerate(all_scope_tasks):
-                    if i > 0:
-                        time.sleep(2)  # Stagger for Groq RPM
-                    f = meth_pool.submit(
-                        run_methodology_agent, topic.strip(), domain.strip(),
-                        scope_item, context_summaries
-                    )
-                    meth_futures[f] = (r_out, scope_item)
-                
-                # Initialize result storage
-                results_by_agent = {}  # r_out id -> list of enhanced scopes
-                for r_out in research_outputs:
-                    results_by_agent[id(r_out)] = []
-                
-                completed_scopes = 0
                 try:
-                    for future in concurrent.futures.as_completed(meth_futures, timeout=120):
-                        r_out, scope_item = meth_futures[future]
-                        label = scope_item.get('scope_title', 'Scope')
-                        completed_scopes += 1
-                        if total_scopes > 0:
-                            methodology_bar.progress(completed_scopes / total_scopes)
+                    # Call EXACTLY ONCE
+                    master_meth = _run_agent_safe(
+                        run_methodology_agent, 
+                        topic.strip(), domain.strip(),
+                        all_open_problems, context_summaries,
+                        timeout_seconds=300
+                    )
+                    
+                    if type(master_meth) is tuple:
+                        master_meth, _ = master_meth # strip safe wrapper err if returned
+                    
+                    # --- PHASE 2 VALIDATION ---
+                    v2_valid, v2_msg = PipelineValidator.validate_phase2_methodology(master_meth)
+                    if not v2_valid:
+                        st.error(f"❌ Phase 2 Validation Failed: {v2_msg}")
+                        # st.stop()  # Disabled strict halt
                         
-                        try:
-                            enhanced_scope = future.result(timeout=0)
-                            if not enhanced_scope:
-                                enhanced_scope = {**scope_item, "error": "empty result"}
-                                gemini_box.warning(f"⚠️ '{label}' returned empty")
-                            else:
-                                gemini_box.write(f"✅ '{label}' complete")
-                        except Exception as e:
-                            gemini_box.warning(f"⚠️ '{label}' failed: {e}")
-                            enhanced_scope = {**scope_item, "error": str(e)}
+                    gemini_box.write(f"✅ '{master_meth.get('scope_title', 'Master Methodology')}' complete")
+                    
+                    # Consolidate into the first dict so it exists downstream naturally without looping
+                    research_outputs[0]["future_scope_methodologies"] = [master_meth]
+                    # Clear out others
+                    for idx in range(1, len(research_outputs)):
+                        research_outputs[idx]["future_scope_methodologies"] = []
                         
-                        results_by_agent[id(r_out)].append(enhanced_scope)
-                except TimeoutError:
-                    unfinished = sum(1 for f in meth_futures if not f.done())
-                    for f in meth_futures:
-                        if not f.done():
-                            f.cancel()
-                    gemini_box.warning(f"⚠️ {unfinished} methodology agent(s) timed out. Continuing with completed ones.")
-                    methodology_bar.progress(1.0)
-                
-                meth_pool.shutdown(wait=False)
-                
-                # Assign results back
-                for r_out in research_outputs:
-                    r_out["future_scope_methodologies"] = results_by_agent.get(id(r_out), [])
-                
+                except Exception as e:
+                    gemini_box.warning(f"⚠️ Methodology failed: {e}")
+                    st.error(f"❌ Phase 2 Validation System Exit: {e}")
+                    # st.stop()
+                    
                 gemini_box.update(label="Methodologies Designed", state="complete", expanded=False)
             
-            # --- PHASE 1.8: AUTORESEARCH EXPERIMENT (Optional) ---
-            if 'enable_autoresearch' not in locals(): enable_autoresearch = False # Fallback
-            if enable_autoresearch:
-                st.subheader(f"1.8. Running Autonomous Experiment ({ar_minutes} mins)")
-                ar_status = st.status("Initializing Autoresearch (iterative optimization)...", expanded=True)
-                
-                # Check if already in outputs (idempotency for reruns if structured)
-                # But here we run it fresh if requested
-                
-                ar_result, ar_err = _run_agent_safe(
-                    run_autoresearch, 
-                    topic=topic.strip(), 
-                    domain=domain.strip(),
-                    duration_minutes=ar_minutes,
-                    timeout_seconds=(ar_minutes * 60) + 120
-                )
-                
-                if ar_err:
-                    ar_status.error(f"Autoresearch failed: {ar_err}")
-                elif ar_result.get("status") == "failed" or "crash" in str(ar_result).lower() or ar_result.get("summary") is None:
-                    ar_status.error(f"Autoresearch ended with errors or crashed during execution.")
-                else:
-                    ar_status.write("✅ Experiment complete.")
-                    ar_status.update(label="Autoresearch Complete", state="complete", expanded=False)
-                    
-                    # Synthesize result into a format 'research_outputs' likes
-                    ar_summary_block = {
-                        "role": "experimental_validation",
-                        "topic": topic,
-                        "summary": f"### Autonomous Experiment Results\n\n**Goal**: {topic}\n\n**Outcome**:\n{ar_result.get('summary', 'No summary provided.')}\n\n**Technical Log**:\nSee attached experiment logs.",
-                        "future_research_directions": [],
-                        "citations": [],
-                        "top_papers": [],
-                        "future_scope_methodologies": [{
-                            "scope_title": "Automated Optimization Findings",
-                            "problem_statement": "Experimental validation of core concepts.",
-                            "proposed_methodology": ar_result.get('summary', 'See logs.')
-                        }],
-                        "_autoresearch_score": 100 if ar_result.get("status") == "success" else 50
-                    }
-                    research_outputs.append(ar_summary_block)
-                    st.success(f"Autoresearch added to pipeline results.")
+
 
             # Save to Cache
             st.session_state['research_outputs'] = research_outputs
@@ -329,9 +261,8 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 master_visual = st.session_state['master_visual']
                 st.info("Loaded Diagrams from Cache")
             else:
-                st.subheader("2. Generating System Architecture Diagram")
+                st.subheader("Generating Architecture Diagram")
                 viz_status = st.status("🎨 Generating diagrams...", expanded=True)
-                viz_status.write("PaperBanana pipeline (1 iteration) + Pillow fallback...")
                 
                 # Use polling-based runner — keeps WebSocket alive
                 pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -376,7 +307,12 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                     expanded=False
                 )
                 st.session_state['master_visual'] = master_visual
-            
+                
+                # --- PHASE 3 VALIDATION ---
+                v3_valid, v3_msg = PipelineValidator.validate_phase3_visuals(master_visual)
+                if not v3_valid:
+                    st.error(f"❌ Phase 3 Validation Failed: {v3_msg}")
+                    # st.stop()
             if master_visual.get("status") == "ok":
                 score_str = ""
                 if master_visual.get("_autoresearch_score", -1) > -1:
@@ -386,15 +322,13 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 if master_visual.get("warning"):
                     st.warning(master_visual.get("warning"))
                 
-                # Display ALL diagrams in tabs
+                # Display diagrams in tabs (Architecture + Workflow only)
                 all_diagrams = master_visual.get("all_diagrams", {})
                 arch_path = master_visual.get("image_path", all_diagrams.get("architecture", ""))
                 wf_path = all_diagrams.get("workflow", "")
-                methods_path = all_diagrams.get("methods", "")
                 
                 tab_names = ["📐 Architecture"]
                 if wf_path and os.path.exists(wf_path): tab_names.append("🔄 Workflow")
-                if methods_path and os.path.exists(methods_path): tab_names.append("🧪 Methods")
                 if "llm_generated_prompt" in master_visual: tab_names.append("🎯 Diagram Agent Prompt")
 
                 viz_tabs = st.tabs(tab_names)
@@ -409,46 +343,27 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                     with viz_tabs[tab_idx]:
                         st.image(wf_path, caption="Research Pipeline Workflow", use_container_width=True)
                     tab_idx += 1
-                
-                if methods_path and os.path.exists(methods_path):
-                    with viz_tabs[tab_idx]:
-                        st.image(methods_path, caption="Key Methods & Techniques", use_container_width=True)
-                    tab_idx += 1
                     
                 if "llm_generated_prompt" in master_visual:
                     with viz_tabs[tab_idx]:
-                        st.markdown("#### 🧠 Auto-Generated Peak-Detail Diagram Prompt")
-                        st.info("A dedicated agent synthesized all your research specifically into this elite-level, hyper-detailed architectural description, serving as the master prompt for generating the diagram.", icon="✨")
+                        st.markdown("#### 🧠 Auto-Generated Diagram Prompt")
                         st.markdown(f"```text\n{master_visual['llm_generated_prompt']}\n```")
                     tab_idx += 1
                 
-                # Methodology flowcharts (image-based, no mermaid)
-                methodology_images = master_visual.get("methodology_images", [])
-                if methodology_images:
-                    st.markdown("#### Methodology Flowcharts")
-                    for mi in methodology_images:
-                        mpath = mi.get("path", "")
-                        mtitle = mi.get("title", "Methodology")
-                        if mpath and os.path.exists(mpath):
-                            st.image(mpath, caption=mtitle, use_container_width=True)
-                
                 # Image download buttons
                 image_paths = master_visual.get("image_paths", {})
-                # Also include workflow and methods for download
                 if wf_path and os.path.exists(wf_path):
                     image_paths["workflow_png"] = wf_path
-                if methods_path and os.path.exists(methods_path):
-                    image_paths["methods_png"] = methods_path
                 
                 if image_paths:
                     st.markdown("#### 📥 Download Diagrams")
-                    dl_cols = st.columns(min(len(image_paths), 5))
+                    dl_cols = st.columns(min(len(image_paths), 3))
                     for i, (fmt, path) in enumerate(image_paths.items()):
                         if os.path.exists(path):
                             with open(path, "rb") as f:
                                 img_data = f.read()
                             ext = os.path.splitext(path)[1].lstrip('.')
-                            dl_cols[i % min(len(image_paths), 5)].download_button(
+                            dl_cols[i % min(len(image_paths), 3)].download_button(
                                 label=f"⬇️ {fmt.upper().replace('_', ' ')}",
                                 data=img_data,
                                 file_name=f"{topic.strip().replace(' ','_')}_{fmt}.{ext}",
@@ -467,9 +382,8 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 invoice_output = st.session_state['invoice_output']
                 st.info("Loaded Report from Cache")
             else:
-                st.subheader("3. Generating PhD-Grade Report")
-                report_status = st.status("Compiling whitepaper...", expanded=True)
-                report_status.write("**Synthesizing** research into PhD-grade report via Groq...")
+                st.subheader("Generating Report")
+                report_status = st.status("Compiling report...", expanded=True)
                 
                 # Polling-based approach to keep WebSocket alive
                 inv_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
@@ -521,6 +435,12 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                     state="complete" if invoice_output.get("status") != "failed" else "error",
                     expanded=False
                 )
+                
+                # --- PHASE 4 VALIDATION ---
+                v4_valid, v4_msg = PipelineValidator.validate_phase4_report(invoice_output)
+                if not v4_valid:
+                    st.error(f"❌ Phase 4 Validation Failed: {v4_msg}")
+                    # Allow fallback to catch it, don't hard stop if fallback exists
             
             # Fallback: Generate a structured native report with the correct 7-section layout
             if invoice_output.get("status") == "failed":
@@ -549,10 +469,19 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 seen_titles = set()
                 for r in research_outputs:
                     for p in r.get("top_papers", []) + r.get("citations", []):
-                        key = (p.get("title", "") or "").strip().lower()[:70]
+                        if isinstance(p, dict):
+                            title = p.get("title", "") or ""
+                            count = p.get("citationCount", 0) or 0
+                            paper_obj = p
+                        else:
+                            title = str(p)
+                            count = 0
+                            paper_obj = {"title": title, "citationCount": count}
+                            
+                        key = title.strip().lower()[:70]
                         if key and key not in seen_titles:
                             seen_titles.add(key)
-                            all_real_papers.append(p)
+                            all_real_papers.append(paper_obj)
                 # Sort by citation count descending
                 all_real_papers.sort(key=lambda p: p.get("citationCount", 0) or 0, reverse=True)
 
@@ -749,159 +678,82 @@ if generate_btn or ('research_outputs' in st.session_state and st.session_state[
                 
                 # Show Invoice Autoresearch Score
                 if "_autoresearch_score" in invoice_output:
-                    st.info(f"🏅 **Self-Correction Panel**: The Report Synthesis Agent achieved a peer-review score of **{invoice_output['_autoresearch_score']}/100** before finalizing.")
+                    st.info(f"🏅 **Score**: {invoice_output['_autoresearch_score']}/100")
                 
                 # --- RESULTS UI ---
-                tab1, tab2 = st.tabs(["📄 Final Report", "📊 Raw Research Data"])
+                st.markdown("### 📄 Final Research Report")
                 
-                with tab1:
-                    # Markdown Preview
-                    cover = invoice_output.get("cover_page_markdown", "")
-                    toc = invoice_output.get("table_of_contents_markdown", "")
-                    sections = invoice_output.get("sections_markdown", [])
-                    
-                    st.markdown(cover, unsafe_allow_html=True)
-                    st.markdown("---")
-                    st.markdown(toc, unsafe_allow_html=True)
-                    st.markdown("---")
-                    
-                    full_md_text = f"{cover}\n\n{toc}\n\n"
-                    
-                    for i, sec in enumerate(sections):
-                        title = sec.get("title", "")
-                        content = sec.get("content", "")
-                        st.markdown(f"## {title}")
-                        render_clean_markdown(content)
-                        st.markdown("---")
-                        full_md_text += f"\n## {title}\n{content}\n\n---\n"
-
-                    # Auto-Generated Files
-                    st.divider()
-                    st.markdown("### 📥 Download Results")
-                    
-                    # Calculate safe_topic BEFORE try block to ensure it's available for MD download if PDF fails
-                    safe_topic = "".join([c for c in topic if c.isalnum() or c in (' ','-','_')]).strip().replace(' ','_')
-                    if not safe_topic: safe_topic = "report"
-
-                    # Generate PDF immediately if possible (stateless download button fix)
-                    pdf_data = None
-                    try:
-                        from pdf.pdf_generator import convert_markdown_to_pdf
-                        
-                        pdf_path_out = OUTPUT_DIR / f"{safe_topic}.pdf"
-                        md_path_out = OUTPUT_DIR / f"{safe_topic}.md"
-                        md_path_out.write_text(full_md_text, encoding="utf-8")
-                        
-                        convert_markdown_to_pdf(str(md_path_out), str(pdf_path_out))
-                        if pdf_path_out.exists():
-                            with open(pdf_path_out, "rb") as f:
-                                pdf_data = f.read()
-                    except Exception as e:
-                        st.warning(f"PDF Generation skipped: {e}")
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.download_button(
-                            label="📄 Download Markdown Report",
-                            data=full_md_text,
-                            file_name=f"{safe_topic}.md",
-                            mime="text/markdown"
-                        )
-                    with col2:
-                        if pdf_data:
-                            st.download_button(
-                                label="📕 Download PDF Report",
-                                data=pdf_data,
-                                file_name=f"{safe_topic}.pdf",
-                                mime="application/pdf"
-                            )
-                        else:
-                            st.button("PDF Unavailable", disabled=True)
-
-                with tab2:
-                    for r in research_outputs:
-                        role_label = r.get('role', 'unknown').replace('_', ' ').title()
-                        with st.expander(f"🔬 {role_label} — Research Data", expanded=False):
-                            if "_autoresearch_score" in r:
-                                st.markdown(f"**🏅 Peer-Review Score (Parallel Swarm):** {r['_autoresearch_score']}/100")
-                                if "_autoresearch_feedback" in r:
-                                    st.markdown(f"**💬 Judge Feedback:** {r['_autoresearch_feedback']}")
-                            
-                            # Summary
-                            if r.get("summary"):
-                                st.markdown("#### Summary")
-                                st.markdown(r["summary"], unsafe_allow_html=True)
-                            
-                            # Future Scope Methodologies
-                            fsm = r.get("future_scope_methodologies", [])
-                            if fsm:
-                                st.markdown("#### Future Scope & Proposed Methodologies")
-                                for idx, item in enumerate(fsm, 1):
-                                    scope = item.get("scope_title", item.get("scope", ""))
-                                    methodology = item.get("proposed_methodology", item.get("proposed_solution", ""))
-                                    cites = item.get("supporting_citations", [])
-                                    st.markdown(f"**{idx}. {scope}**")
-                                    st.markdown(methodology)
-                                    if cites:
-                                        st.markdown(f"*Supporting Citations: {', '.join(cites)}*")
-                                    st.markdown("---")
-                            
-                            # Citations
-                            citations = r.get("citations", [])
-                            if citations:
-                                st.markdown("#### Citations")
-                                for c in citations:
-                                    label = c.get("label", "")
-                                    title = c.get("title", "")
-                                    authors = c.get("authors", "")
-                                    year = c.get("year", "")
-                                    url = c.get("doi_or_url", "")
-                                    if url and url.startswith("http"):
-                                        st.markdown(f"{label} {authors} ({year}). \"{title}\". [{url}]({url})")
-                                    else:
-                                        st.markdown(f"{label} {authors} ({year}). \"{title}\". {url}")
-                            
-                            # Top Papers
-                            papers = r.get("top_papers", [])
-                            if papers:
-                                st.markdown("#### Top Papers")
-                                for idx, p in enumerate(papers, 1):
-                                    url = p.get("doi_or_url", "")
-                                    if url and url.startswith("http"):
-                                        st.markdown(f"{idx}. {p.get('authors','')} ({p.get('year','')}). \"{p.get('title','')}\". [{url}]({url})")
-                                    else:
-                                        st.markdown(f"{idx}. {p.get('authors','')} ({p.get('year','')}). \"{p.get('title','')}\". {url}")
-
-                # --- PHASE 4: AUTONOMOUS EXPERIMENTATION (OPTIONAL) ---
+                # Markdown Preview
+                cover = invoice_output.get("cover_page_markdown", "")
+                toc = invoice_output.get("table_of_contents_markdown", "")
+                sections = invoice_output.get("sections_markdown", [])
+                
+                st.markdown(cover, unsafe_allow_html=True)
                 st.markdown("---")
-                st.subheader("4. Autonomous Research Experiment (Beta)")
+                st.markdown(toc, unsafe_allow_html=True)
+                st.markdown("---")
                 
-                with st.expander("🚀 Launch Autonomous Validation Loop", expanded=False):
-                    st.info("This module runs an autonomous iterative optimization loop. It will research your topic, generate experiments, and produce a validation report.")
-                    ar_time = st.slider("Experiment Duration (Minutes)", 1, 60, 5)
+                full_md_text = f"{cover}\n\n{toc}\n\n"
+                
+                for i, sec in enumerate(sections):
+                    title = sec.get("title", "")
+                    content = sec.get("content", "")
+                    st.markdown(f"## {title}")
+                    render_clean_markdown(content)
+                    st.markdown("---")
+                    full_md_text += f"\n## {title}\n{content}\n\n---\n"
+
+                # Auto-Generated Files
+                st.divider()
+                st.markdown("### 📥 Download Results")
+                
+                # Calculate safe_topic BEFORE try block to ensure it's available for MD download if PDF fails
+                safe_topic = "".join([c for c in topic if c.isalnum() or c in (' ','-','_')]).strip().replace(' ','_')
+                if not safe_topic: safe_topic = "report"
+
+                # Generate PDF immediately if possible (stateless download button fix)
+                pdf_data = None
+                try:
+                    from pdf.pdf_generator import convert_markdown_to_pdf
                     
-                    if st.button("Start Autoresearch Experiment"):
-                        ar_status = st.status("Running autonomous experiment...", expanded=True)
-                        ar_status.write(f"Initializing `uv run train.py` for {ar_time} minutes...")
-                        
-                        # Use the safe runner
-                        # Note: run_autoresearch signature: (topic, domain, duration_minutes)
-                        ar_res, ar_err = _run_agent_safe(
-                            run_autoresearch, 
-                            topic=topic.strip(), 
-                            domain=domain.strip(),
-                            duration_minutes=ar_time, 
-                            timeout_seconds=(ar_time*60)+120
+                    pdf_path_out = OUTPUT_DIR / f"{safe_topic}.pdf"
+                    md_path_out = OUTPUT_DIR / f"{safe_topic}.md"
+                    md_path_out.write_text(full_md_text, encoding="utf-8")
+                    
+                    convert_markdown_to_pdf(str(md_path_out), str(pdf_path_out))
+                    if pdf_path_out.exists():
+                        with open(pdf_path_out, "rb") as f:
+                            pdf_data = f.read()
+                except Exception as e:
+                    st.warning(f"PDF Generation skipped: {e}")
+
+                # --- PHASE 5 VALIDATION ---
+                if pdf_data is None:  # Check if pdf generated successfully
+                     try:
+                         # Double check with validator
+                         v5_valid, v5_msg = PipelineValidator.validate_phase5_pdf(str(pdf_path_out) if 'pdf_path_out' in locals() else None)
+                         if not v5_valid:
+                             st.error(f"❌ Phase 5 Validation Failed: {v5_msg}")
+                     except Exception as e:
+                         pass
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.download_button(
+                        label="📄 Download Markdown Report",
+                        data=full_md_text,
+                        file_name=f"{safe_topic}.md",
+                        mime="text/markdown"
+                    )
+                with col2:
+                    if pdf_data:
+                        st.download_button(
+                            label="📕 Download PDF Report",
+                            data=pdf_data,
+                            file_name=f"{safe_topic}.pdf",
+                            mime="application/pdf"
                         )
-                        
-                        if ar_err:
-                            ar_status.error(f"Experiment failed: {ar_err}")
-                        elif ar_res.get("status") == "failed":
-                             ar_status.error(f"Experiment failed: {ar_res.get('error')}")
-                        else:
-                             ar_status.update(label="Experiment Complete ✅", state="complete", expanded=False)
-                             st.success("Optimization loop finished!")
-                             
-                             if ar_res.get("summary"):
-                                 st.markdown("### Experiment Results")
-                                 st.markdown(ar_res["summary"])
+                    else:
+                        st.button("PDF Unavailable", disabled=True)
+
+

@@ -1,10 +1,10 @@
 # agents/invoice_agent.py
 """
 Invoice/Report Agent — Hybrid Architecture.
-  • ORCHESTRATOR calls (report compilation) → Groq (cloud, high intelligence)
+  • ORCHESTRATOR calls (report compilation) → OpenRouter (cloud, high intelligence)
 
 Compiles research outputs into a comprehensive PhD-grade whitepaper.
-This agent STAYS on Groq because it needs maximum intelligence for
+This agent STAYS on OpenRouter because it needs maximum intelligence for
 writing the final complex paragraphs and synthesizing all research.
 """
 
@@ -25,7 +25,7 @@ load_dotenv(dotenv_path=env_path)
 
 from orchestrator.utils import now_iso_z
 from agents.prompt_helpers import simple_render
-from agents.llm_client import call_groq, strip_think_tags, _get_groq_client
+from agents.llm_client import call_groq, strip_think_tags, _get_openrouter_client as _get_groq_client, _call_openrouter_api
 
 PROMPT_PATH = PROJECT_ROOT / "orchestrator" / "prompts" / "invoice_agent_template.txt"
 
@@ -325,7 +325,7 @@ def _post_process_report(parsed: dict, research_outputs: list, master_visual: di
         diagram_injected = False
         for sec in sections:
             title_lower = sec.get("title", "").lower()
-            if any(keyword in title_lower for keyword in ["architecture", "system", "design", "landscape", "pipeline"]):
+            if any(keyword in title_lower for keyword in ["architecture", "system", "methodology", "proposed"]):
                 content = sec.get("content", "")
                 if "<img" not in content and "diagram is displayed" not in content:
                     sec["content"] = arch_note + content
@@ -334,21 +334,21 @@ def _post_process_report(parsed: dict, research_outputs: list, master_visual: di
                 break
         
         if not diagram_injected:
-            print("DEBUG: No architecture section found, creating new section\n", file=sys.stderr)
+            print("DEBUG: No methodology/architecture section found, creating new section\n", file=sys.stderr)
             diagram_section = {
-                "title": "System Architecture",
+                "title": "Proposed Methodology",
                 "content": arch_note
             }
             inserted = False
             for idx, sec in enumerate(sections):
-                if "future" in sec.get("title", "").lower() or "scope" in sec.get("title", "").lower():
+                if "conclusion" in sec.get("title", "").lower() or "reference" in sec.get("title", "").lower():
                     sections.insert(idx, diagram_section)
                     inserted = True
                     break
             if not inserted:
                 sections.insert(-1, diagram_section)
     
-    # 2. Ensure methodology details are embedded in Future Scope section (NO mermaid â€” images only)
+    # 2. Ensure methodology details are embedded in Proposed Methodology section
     all_methodology_details = []
     for r in research_outputs:
         for m in r.get("future_scope_methodologies", []):
@@ -364,7 +364,7 @@ def _post_process_report(parsed: dict, research_outputs: list, master_visual: di
     
     if all_methodology_details:
         for sec in sections:
-            if "future" in sec.get("title", "").lower() or "scope" in sec.get("title", "").lower():
+            if "methodology" in sec.get("title", "").lower() or "proposed" in sec.get("title", "").lower():
                 content = sec.get("content", "")
                 # Strip any leftover mermaid blocks from LLM output
                 import re as _re
@@ -476,7 +476,7 @@ def _post_process_report(parsed: dict, research_outputs: list, master_visual: di
             break
 
 
-def _evaluate_report_quality(parsed: dict, topic: str, client) -> tuple[int, str]:
+def _evaluate_report_quality(parsed: dict, topic: str, api_key) -> tuple[int, str]:
     """Karpathy Evaluator: Judge for the final Invoice/Whitepaper output."""
     eval_prompt = f"""
     You are a stringent peer-reviewer. Grade this final aggregated report for "{topic}".
@@ -495,12 +495,14 @@ def _evaluate_report_quality(parsed: dict, topic: str, client) -> tuple[int, str
     FEEDBACK: [1-2 sentences. If score >= 90 just say "Excellent."]
     """
     try:
-        resp = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+        content = _call_openrouter_api(
+            api_key=api_key,
+            model="google/gemini-2.5-flash",
             messages=[{"role": "user", "content": eval_prompt}],
-            temperature=0.0, max_tokens=150, timeout=30
+            temperature=0.0,
+            max_tokens=150,
+            timeout=30,
         )
-        content = resp.choices[0].message.content
         import re
         score_match = re.search(r"SCORE:\s*(\d+)", content)
         score = int(score_match.group(1)) if score_match else 50
@@ -513,67 +515,229 @@ def _evaluate_report_quality(parsed: dict, topic: str, client) -> tuple[int, str
 def run_invoice_agent(topic: str, domain: str, research_outputs: list, master_visual: dict = None) -> dict:
     """
     Compile all research outputs into a comprehensive whitepaper.
-    ORCHESTRATOR TASK → Uses Groq (cloud) for maximum intelligence.
+    ORCHESTRATOR TASK → Uses OpenRouter (cloud) for maximum intelligence.
     """
-    groq_client = _get_groq_client()
-    if not groq_client:
-        return {"status": "failed", "error": "Groq client not initialized. Check GROQ_API_KEY."}
+    openrouter_key = _get_groq_client()  # Returns an OpenRouter API key
+    if not openrouter_key:
+        return {"status": "failed", "error": "OpenRouter client not initialized. Check OPENROUTER_API_KEY."}
     
-    prompt = build_prompt(topic, domain, research_outputs, master_visual)
+    # ─── STRICT CONTEXT TRUNCATION ─────────────────────────────────────
+    # Aggressive truncation to stay within token limits.
+    # 16,000 chars ≈ 4,000 tokens, leaving room for system prompt + output.
+    truncated_outputs = []
+    for r in research_outputs:
+        t = dict(r)  # shallow copy
+        # Cap summary to 800 chars (more context = better report)
+        if "summary" in t:
+            t["summary"] = t["summary"][:800]
+        # Cap open_problems to 5
+        if "open_problems" in t:
+            t["open_problems"] = t["open_problems"][:5]
+        # Keep more papers (titles + authors + year for citations)
+        if "top_papers" in t:
+            t["top_papers"] = [
+                {"title": p.get("title", "")[:120], "authors": p.get("authors", "")[:100],
+                 "year": p.get("year", ""), "venue": p.get("venue", "")[:60],
+                 "doi_or_url": p.get("doi_or_url", "")}
+                for p in t["top_papers"][:8]
+            ]
+        # Keep more methods for richer content
+        if "key_methods" in t:
+            t["key_methods"] = t["key_methods"][:6]
+        # Keep more methodology detail
+        for scope in t.get("future_scope_methodologies", [])[:1]:
+            if "proposed_methodology" in scope:
+                scope["proposed_methodology"] = scope["proposed_methodology"][:1200]
+        # Remove heavy fields not needed for synthesis
+        t.pop("citations", None)
+        t.pop("search_terms", None)
+        t.pop("_autoresearch_feedback", None)
+        truncated_outputs.append(t)
     
-    prompt += (
-        "\n\n=== ABSOLUTE REQUIREMENTS FOR REPORT GENERATION ==="
-        "\n1. OUTPUT LENGTH: 5000+ words minimum. Each section MUST meet its stated word count."
-        "\n2. LITERATURE SURVEY: Must have a markdown table with 15+ rows, one row per paper."
-        "   Format every paper title as a clickable link: [Title](URL)."
-        "   If no URL exists in the data, use https://scholar.google.com/scholar?q=TITLE+encoded."
-        "\n3. REFERENCES SECTION: Must be a numbered list. Every reference must include:"
-        "   Authors, Year, Title in quotes, Venue in italics, clickable URL."
-        "   Format: `1. Smith et al. (2024). \"Title.\" *Venue*. [URL](URL)`"
-        "\n4. ALL 3 CORE SECTIONS REQUIRED:"
-        "   - Historical Foundations: 4 eras, causal chain, specific metrics per era."
-        "   - State-of-the-Art Analysis: Top 5+ methods compared on benchmarks with numbers."
-        "   - Future Scope & Methodologies: Each scope item gets full proposal with pipeline steps."
-        "\n5. INLINE CITATIONS: Every factual claim must have [N] inline citation markers."
-        "\n6. Output strict JSON only. No markdown fences around the outer JSON object."
-    )
+    print(f"DEBUG: [invoice] Context truncated: {len(research_outputs)} agents, "
+          f"papers capped at 8 each", file=sys.stderr)
+    
+    # ─── COLLECT ALL PAPERS FOR REFERENCE LIST ───
+    all_papers = []
+    seen_titles = set()
+    for r in research_outputs:
+        for p in r.get("top_papers", []):
+            key = p.get("title", "").strip().lower()[:60]
+            if key and key not in seen_titles:
+                seen_titles.add(key)
+                all_papers.append(p)
+    all_papers.sort(key=lambda p: p.get("citationCount", 0) or 0, reverse=True)
+    
+    # Format papers as numbered reference list for the LLM
+    ref_block = ""
+    for i, p in enumerate(all_papers[:20], 1):
+        ref_block += f"[{i}] {p.get('authors','Unknown')} ({p.get('year','?')}). \"{p.get('title','')}\". {p.get('venue','')}. {p.get('doi_or_url','')}\n"
+    
+    # ─── COLLECT METHODOLOGY DATA ───
+    meth_data = ""
+    for r in truncated_outputs:
+        for m in r.get("future_scope_methodologies", []):
+            if m.get("scope_title") and not m.get("error"):
+                meth_data += f"\nTitle: {m.get('scope_title','')}\n"
+                meth_data += f"Problem: {m.get('problem_statement','')}\n"
+                meth_data += f"Methodology: {m.get('proposed_methodology','')}\n"
+                meth_data += f"Architecture: {m.get('architecture_details','')}\n"
+                meth_data += f"Loss Function: {m.get('loss_function','')}\n"
+                meth_data += f"Baselines: {', '.join(m.get('baseline_methods',[]))}\n"
+                meth_data += f"Datasets: {', '.join(m.get('evaluation_datasets',[]))}\n"
+                steps = m.get("pipeline_steps", [])
+                if steps:
+                    meth_data += "Pipeline Steps:\n" + "\n".join(f"  {i+1}. {s}" for i,s in enumerate(steps)) + "\n"
+
+    # ─── BUILD RESEARCH SUMMARIES ───
+    research_block = ""
+    for r in truncated_outputs:
+        role = r.get("role", "agent").replace("_", " ").title()
+        summary = r.get("summary", "")
+        methods = r.get("key_methods", [])
+        problems = r.get("open_problems", [])
+        research_block += f"\n--- {role} Agent ---\n{summary}\n"
+        if methods:
+            research_block += f"Key Methods: {', '.join(methods)}\n"
+        if problems:
+            research_block += f"Open Problems: {'; '.join(problems)}\n"
+
+    # ─── BUILD THE COMPREHENSIVE PROMPT WITH XML SECTION TAGS ───
+    report_prompt = f"""You are an Elite Academic Report Synthesizer producing a PhD-grade comprehensive whitepaper.
+
+TOPIC: "{topic}"
+DOMAIN: {domain}
+TOTAL VERIFIED PAPERS: {len(all_papers)}
+
+═════════════════════════════════════
+RESEARCH DATA FROM 3 SPECIALIST AGENTS:
+═════════════════════════════════════
+{research_block}
+
+═════════════════════════════════════
+VERIFIED REFERENCES (from OpenAlex):
+═════════════════════════════════════
+{ref_block}
+
+═════════════════════════════════════
+METHODOLOGY DESIGN:
+═════════════════════════════════════
+{meth_data}
+
+═════════════════════════════════════
+YOUR TASK: Generate a comprehensive PhD-grade research report.
+═════════════════════════════════════
+
+MANDATORY SECTIONS — You MUST output ALL 7 sections below.
+Each section must contain substantial, detailed academic prose.
+Use [N] inline citations referencing the numbered papers above.
+
+Output strict JSON with this EXACT structure:
+{{
+  "title": "{topic} — Comprehensive Research Report",
+  "subtitle": "A PhD-Grade Technical Analysis in {domain}",
+  "status": "ok",
+  "cover_page_markdown": "# {topic}\\n\\n## PhD-Grade Technical Report in {domain}",
+  "table_of_contents_markdown": "## Table of Contents\\n\\n1. Executive Abstract\\n2. Historical Foundations\\n3. Literature Review & SOTA Analysis\\n4. State of the Art & Emerging Trends\\n5. Proposed Methodology\\n6. Conclusion & Future Directions\\n7. References",
+  "sections_markdown": [
+    {{
+      "title": "Executive Abstract",
+      "content": "<abstract>Write a 200-word executive summary of the entire report covering the topic, key findings from literature, proposed methodology, and expected impact. Must cite at least 2 papers.</abstract>"
+    }},
+    {{
+      "title": "Historical Foundations",
+      "content": "<historical>Write 400+ words tracing the historical evolution of {topic}. Cover foundational works, seminal papers, key milestones, and how the field evolved over time. Use [N] inline citations for every claim. Discuss at least 3 papers.</historical>"
+    }},
+    {{
+      "title": "Literature Review & SOTA Analysis",
+      "content": "<literature_review>Write 600+ words providing a comprehensive literature review. Organize by themes/sub-topics. For each paper, discuss: (a) what problem it solves, (b) the method used, (c) key results, (d) limitations. Use [N] inline citations throughout. This is the MOST IMPORTANT section — be thorough and analytical. Must reference at least 6 papers.</literature_review>"
+    }},  
+    {{
+      "title": "State of the Art & Emerging Trends",
+      "content": "<emerging>Write 400+ words on current SOTA methods and emerging trends. Discuss recent breakthroughs, new architectures, benchmark improvements, and open challenges. Use [N] citations.</emerging>"
+    }},
+    {{
+      "title": "Proposed Methodology",
+      "content": "<methodology>Write 500+ words describing the proposed research methodology synthesized from the methodology design data above. Include: problem statement, architecture details, loss functions, baseline comparisons, datasets, expected outcomes, and a step-by-step pipeline. Be technically specific.</methodology>"
+    }},
+    {{
+      "title": "Conclusion & Future Directions",
+      "content": "<conclusion>Write 300+ words summarizing findings, identifying key research gaps, and proposing 3-5 specific future research directions with justification.</conclusion>"
+    }},
+    {{
+      "title": "References",
+      "content": "<references>List ALL {len(all_papers)} papers in numbered format: [N] Authors (Year). Title. Venue. DOI/URL</references>"
+    }}
+  ]
+}}
+
+CRITICAL RULES:
+1. EVERY section must have substantial content (minimum word counts shown above)
+2. Use [N] inline citations frequently — at least 2 per section
+3. The Literature Review section is the MOST IMPORTANT — write it as a proper academic survey
+4. Do NOT skip or truncate any section
+5. Output ONLY the JSON object. No markdown fences. Start with {{ and end with }}
+6. Write in a formal, academic tone suitable for a PhD thesis
+/no_think"""
 
     last_error = None
     best_parsed = None
     best_score = -1
 
     try:
-        system_msg = "You are an Elite Nature/Science Chief Editor outputting strict JSON with hyper-academic rigorous prose."
-        current_prompt = prompt
-
-        # Truncate prompt if too large for free-tier TPM
-        if len(current_prompt) > 12000:
-            current_prompt = current_prompt[:12000] + "\n... (truncated for API limits)"
-
-        # ORCHESTRATOR CALL → Groq (cloud)
-        print(f"DEBUG: [invoice] Using Groq for report compilation (orchestrator task)", file=sys.stderr)
-        content = call_groq(
-            prompt=current_prompt,
-            system_msg=system_msg,
-            temperature=0.3,
-            max_tokens=6000,    # Increased from 4000 — stops mid-report truncation
-            timeout=120,
-            max_retries=2,
+        system_msg = (
+            "You are an Elite Nature/Science Chief Editor. You produce comprehensive, "
+            "PhD-grade academic reports with deep technical analysis, thorough literature reviews, "
+            "and properly formatted inline [N] citations. Your reports are detailed, well-structured, "
+            "and never truncate or skip sections. Output strict JSON only."
         )
+
+        # ORCHESTRATOR CALL → OpenRouter (google/gemini-2.5-pro via role specialization)
+        print(f"DEBUG: [invoice] Using role-specialized model for report synthesis", file=sys.stderr)
+        models_to_try = ["google/gemini-2.5-pro", "google/gemini-2.5-flash"]
+        content = None
+        for model_name in models_to_try:
+            try:
+                content = call_groq(
+                    prompt=report_prompt,
+                    system_msg=system_msg,
+                    model=model_name,
+                    temperature=0.4,
+                    max_tokens=16384,   # Gemini Pro supports 65K output — use 16K for detailed report
+                    timeout=180,        # Longer timeout for comprehensive report
+                    max_retries=2,
+                    agent_role="invoice",
+                )
+                if content and len(content) > 500:
+                    print(f"DEBUG: [invoice] Success with {model_name}, response length: {len(content)} chars", file=sys.stderr)
+                    break
+            except Exception as model_err:
+                print(f"DEBUG: [invoice] {model_name} failed: {str(model_err)[:150]}", file=sys.stderr)
+                content = None
+                continue
+        if not content:
+            raise RuntimeError("All models failed for invoice generation")
         
         parsed = _extract_json(content)
         parsed.setdefault("invoice_id", f"report_{int(time.time())}")
         parsed.setdefault("sections_markdown", [])
         
-        score = 75
-        print(f"DEBUG: [invoice] Groq report generated. Score: {score}", file=sys.stderr)
+        # Strip XML tags from section content (they were used to force structure)
+        import re as _re
+        for sec in parsed.get("sections_markdown", []):
+            c = sec.get("content", "")
+            c = _re.sub(r'</?(?:abstract|historical|literature_review|emerging|methodology|conclusion|references)>', '', c)
+            sec["content"] = c.strip()
+        
+        score = 85
+        print(f"DEBUG: [invoice] Report generated. Score: {score}, Sections: {len(parsed.get('sections_markdown',[]))}", file=sys.stderr)
         
         best_score = score
         best_parsed = parsed
         
     except Exception as e:
         last_error = str(e)
-        print(f"DEBUG: [invoice] Groq failed: {last_error[:200]}", file=sys.stderr)
+        print(f"DEBUG: [invoice] OpenRouter failed: {last_error[:200]}", file=sys.stderr)
 
     if not best_parsed:
         return {
@@ -597,3 +761,4 @@ def run_invoice_agent(topic: str, domain: str, research_outputs: list, master_vi
     best_parsed["_autoresearch_score"] = best_score
 
     return best_parsed
+

@@ -51,61 +51,106 @@ def convert_markdown_to_pdf(md_path: str, output_pdf_path: str):
         <style>
             @page {{
                 size: a4 portrait;
-                margin: 2.5cm;
+                margin: 2cm 2cm 2.5cm 2cm;
+                @frame footer {{
+                    -pdf-frame-content: footerContent;
+                    bottom: 1cm;
+                    margin-left: 2cm;
+                    margin-right: 2cm;
+                    height: 1cm;
+                }}
             }}
             
             body {{
-                font-family: serif;
+                font-family: "Times New Roman", Times, serif;
                 text-align: justify;
-                line-height: 1.5;
+                line-height: 1.6;
                 font-size: 11pt;
-                color: #000000;
+                color: #2b2b2b;
                 background-color: #FFFFFF;
             }}
             
             h1 {{
-                 color: #000000;
-                 font-family: sans-serif;
-                 border-bottom: 2px solid #000;
+                 color: #1a365d;
+                 font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+                 font-size: 24pt;
+                 border-bottom: 2px solid #2c5282;
+                 padding-bottom: 8px;
+                 margin-bottom: 20px;
+            }}
+            
+            h2 {{
+                 color: #2c5282;
+                 font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+                 font-size: 18pt;
+                 border-bottom: 1px solid #e2e8f0;
+                 margin-top: 25px;
                  padding-bottom: 5px;
             }}
             
-            h2, h3 {{
-                 color: #2c3e50;
-                 font-family: sans-serif;
-                 border-bottom: 1px solid #ddd;
-                 margin-top: 15px;
+            h3 {{
+                 color: #2d3748;
+                 font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+                 font-size: 14pt;
+                 margin-top: 20px;
             }}
             
             p {{
-                margin-bottom: 10px;
+                margin-bottom: 12px;
+            }}
+
+            pre {{
+                background-color: #f8f9fa;
+                border: 1px solid #e9ecef;
+                border-radius: 4px;
+                padding: 10px;
+                font-family: "Courier New", Courier, monospace;
+                font-size: 9.5pt;
+                white-space: pre-wrap;
             }}
 
             code {{
-                background-color: #f5f5f5;
-                color: #c7254e;
-                font-family: monospace;
+                background-color: #f8f9fa;
+                color: #c53030;
+                font-family: "Courier New", Courier, monospace;
+                padding: 2px 4px;
+                border-radius: 3px;
+                font-size: 10pt;
+            }}
+            
+            blockquote {{
+                border-left: 4px solid #4299e1;
+                margin: 15px 0 15px 15px;
+                padding: 5px 10px;
+                background-color: #ebf8ff;
+                font-style: italic;
+                color: #2c5282;
             }}
             
             table {{
                 border-collapse: collapse;
                 width: 100%;
-                margin: 15px 0;
-                color: #000;
-                font-size: 9pt;
+                margin: 20px 0;
+                color: #2d3748;
+                font-size: 10pt;
+                font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
             }}
             th {{
-                border-bottom: 2px solid #000;
+                border-bottom: 2px solid #cbd5e0;
+                border-top: 2px solid #cbd5e0;
                 text-align: left;
-                padding: 5px;
-                background-color: #eee;
-                font-size: 9pt;
+                padding: 8px 10px;
+                background-color: #f7fafc;
+                font-weight: bold;
+                color: #4a5568;
             }}
             td {{
-                border-bottom: 1px solid #ddd;
-                padding: 4px;
-                font-size: 9pt;
+                border-bottom: 1px solid #e2e8f0;
+                padding: 8px 10px;
                 word-wrap: break-word;
+            }}
+            tr:nth-child(even) {{
+                background-color: #f8fafc;
             }}
 
             {css_content}

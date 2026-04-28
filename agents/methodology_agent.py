@@ -121,62 +121,72 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"Could not parse JSON from methodology agent. First 300 chars: {text[:300]}")
 
 
-def run_methodology_agent(topic: str, domain: str, scope_item: dict, context_summaries: str) -> dict:
+def run_methodology_agent(topic: str, domain: str, open_problems: list, context_summaries: str) -> dict:
     """
-    Enhance a single future_research_direction with a detailed methodology
-    and pipeline steps list.
+    Review all open problems/gaps from the Research phase, pick the SINGLE MOST PROMISING gap,
+    and generate EXACTLY ONE master methodology and pipeline steps list.
+    """
     
-    Uses Ollama (local) — no token limits, no rate limits.
-    """
-    scope_title = scope_item.get("scope_title", "Unknown Scope")
-    problem_stmt = scope_item.get("problem_statement", "No problem statement provided.")
+    problems_text = "\n".join([f"- {p}" for p in open_problems]) if open_problems else "No specific problems provided."
 
     prompt = f"""You are a Senior Research Architect at a top AI lab, designing a rigorous methodology for a PhD research proposal.
 
 TOPIC: {topic}
 DOMAIN: {domain}
-RESEARCH DIRECTION: {scope_title}
-PROBLEM STATEMENT: {problem_stmt}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 0: MANDATORY DOMAIN REASONING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Before designing ANYTHING, you MUST reason about what architectures are appropriate:
+- If the topic involves Language Models (LLM, SLM, NLP, text): Use Transformer variants (GPT, BERT, LLaMA, Mistral), attention mechanisms, tokenizers, LoRA/QLoRA adapters. NEVER use GCN, CNN, or graph networks.
+- If the topic involves Vision (image, video, VLM): Use ViT, CLIP, ConvNeXt, DINOv2, Swin Transformer. 
+- If the topic involves Multimodal (VLM, vision-language): Use CLIP, LLaVA, Flamingo, cross-attention fusion.
+- If the topic involves Graphs/Molecules: ONLY THEN use GCN, GAT, GNN.
+
+⚠️ CRITICAL ANTI-HALLUCINATION RULE: Do NOT use Graph Neural Networks (GCN/GAT/GNN) unless the topic EXPLICITLY involves graph-structured data like social networks, molecular chemistry, or knowledge graphs. Using GCNs for text/NLP/LLM topics is WRONG and will be rejected.
 
 PRIOR RESEARCH CONTEXT (from 3 agents):
 {context_summaries[:2500]}
 
-━━━━━━━━━━━━━━━━
+ALL IDENTIFIED OPEN PROBLEMS & GAPS:
+{problems_text}
+
+━━━━━━━━━━━━
 YOUR TASK:
-━━━━━━━━━━━━━━━━
-Design a SINGLE, COMPLETE, DEEPLY REASONED methodology for this research direction.
-This is the ONLY methodology in the entire report — make it comprehensive.
+━━━━━━━━━━━━
+1. Review all the open problems and gaps identified above.
+2. Select the SINGLE BEST, most promising gap to solve.
+3. Design a SINGLE methodology using architectures that are ACTUALLY USED in the "{domain}" field for "{topic}".
+4. Base your architecture choices on the methods mentioned in the PRIOR RESEARCH CONTEXT above. Do NOT invent generic architectures.
 
 Requirements:
-1. Architecture: Name specific model components (e.g., "3-layer GCN with 256 hidden units"), not vague terms
-2. Loss function: Write the exact mathematical form or exact name (e.g., "L = α·CE + β·MSE where α=0.7, β=0.3")
-3. Baseline comparison: Name at least 2 real SOTA methods to compare against
+1. Architecture: Name specific model components relevant to the actual topic domain
+2. Loss function: Write the exact mathematical form (e.g., "L = CE + KL_div" for distillation)
+3. Baseline comparison: Name at least 2 real SOTA methods mentioned in the research context
 4. Dataset: Name real benchmark datasets appropriate for this problem
-5. Expected results: Concrete quantitative targets (accuracy ≥ X%, latency ≤ Y ms, memory reduction Z%)
-6. Pipeline: 8-10 clear, specific steps — not generic ("preprocess data" but "normalize adjacency matrix using symmetric normalization D^{-1/2} A D^{-1/2}")
+5. Expected results: Concrete quantitative targets
+6. Pipeline: 6-8 clear, specific steps
 
 Output strict JSON only. No markdown. Start with {{ end with }}.
 
 {{
-  "scope_title": "{scope_title}",
-  "problem_statement": "{problem_stmt}",
-  "proposed_methodology": "<400-600 words. Name exact architectures, modules, loss functions, optimizers. Reference real techniques. Describe how the methodology solves the stated problem. Include quantitative targets.>",
-  "architecture_details": "<100-200 words describing the specific model architecture layers, sizes, activations>",
-  "loss_function": "<exact loss function description or formula>",
-  "baseline_methods": ["<real SOTA method 1>", "<real SOTA method 2>"],
-  "evaluation_datasets": ["<real dataset 1 with task>", "<real dataset 2 with task>"],
-  "expected_outcomes": {{"accuracy": "<target>", "f1": "<target>", "latency": "<target>", "memory_reduction": "<target if applicable>"}},
+  "scope_title": "<A punchy title for your chosen research direction>",
+  "problem_statement": "<Clear description of the SINGLE gap you chose to solve>",
+  "proposed_methodology": "<300-400 words. Name DOMAIN-APPROPRIATE architectures only. Reference techniques from the research context above.>",
+  "architecture_details": "<100-150 words. MUST match the topic domain — Transformers for NLP, ViTs for vision, etc.>",
+  "loss_function": "<exact loss function relevant to the domain>",
+  "baseline_methods": ["<real SOTA method from the research context>", "<another real SOTA method>"],
+  "evaluation_datasets": ["<real dataset for this topic>", "<another real dataset>"],
+  "expected_outcomes": {{"accuracy": "<target>", "f1": "<target>", "latency": "<target>", "memory_reduction": "<if applicable>"}},
   "pipeline_steps": [
-    "<Step 1: Specific data preprocessing — what exact operation>",
+    "<Step 1: Domain-specific preprocessing>",
     "<Step 2: ...>",
     "<Step 3: ...>",
     "<Step 4: ...>",
     "<Step 5: ...>",
-    "<Step 6: ...>",
-    "<Step 7: ...>",
-    "<Step 8: ...>"
+    "<Step 6: ...>"
   ],
-  "supporting_citations": ["<Author et al. Year - paper title>"],
+  "supporting_citations": ["<Author et al. Year - paper title from research context>"],
   "novelty_score": 0.85,
   "feasibility_score": 0.80
 }}
@@ -190,22 +200,23 @@ Output strict JSON only. No markdown. Start with {{ end with }}.
     )
 
     try:
-        # WORKER CALL → Ollama (local, no limits)
-        print(f"DEBUG: [methodology] Using Ollama for '{scope_title[:40]}'...", file=sys.stderr)
+        # ORCHESTRATOR CALL → OpenRouter (role-specialized model)
+        print(f"DEBUG: [methodology] Using role-specialized model for Master Methodology...", file=sys.stderr)
         
         content = call_llm(
             prompt=prompt,
-            role="worker",  # Routes to Ollama
+            role="worker",
             system_msg=sys_msg,
             temperature=0.4,
-            timeout=90,          # Was 300s — safe now that think=False disables reasoning
+            timeout=120,          # Longer timeout for deep reasoning model
+            agent_role="methodology",
         )
 
         parsed = _extract_json(content)
         
         # Ensure required fields
-        parsed.setdefault("scope_title", scope_title)
-        parsed.setdefault("problem_statement", problem_stmt)
+        parsed.setdefault("scope_title", "Master Methodology")
+        parsed.setdefault("problem_statement", "Unified problem statement")
         parsed.setdefault("proposed_methodology", "")
         parsed.setdefault("pipeline_steps", [])
         parsed.setdefault("supporting_citations", [])
@@ -222,7 +233,8 @@ Output strict JSON only. No markdown. Start with {{ end with }}.
 
     # Fallback: return the original scope_item with error info
     return {
-        **scope_item,
+        "scope_title": "Master Methodology Error",
+        "problem_statement": "Pipeline generation failed.",
         "proposed_methodology": "Methodology generation failed.",
         "pipeline_steps": [],
         "supporting_citations": [],

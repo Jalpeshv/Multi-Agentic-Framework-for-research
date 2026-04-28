@@ -1,5 +1,5 @@
 """
-Visualizer Agent — PaperBanana (Gemini) primary, Pillow ByteByteGo fallback.
+Visualizer Agent — PaperBanana (OpenRouter) primary, Pillow ByteByteGo fallback.
 Generates: Architecture, Workflow, Methods diagrams + per-methodology flowcharts.
 NO MERMAID. All output is PNG images.
 Every generation uses a RANDOMIZED visual theme so outputs always look fresh.
@@ -7,6 +7,7 @@ Every generation uses a RANDOMIZED visual theme so outputs always look fresh.
 import os
 import sys
 import re
+import time
 import json as _json
 import importlib.util
 import base64
@@ -24,8 +25,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 load_dotenv(PROJECT_ROOT / ".env")
 
-if not os.getenv("GOOGLE_API_KEY") and os.getenv("GEMINI_API_KEY"):
-    os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
+# OpenRouter key setup for PaperBanana
+if not os.getenv("OPENROUTER_API_KEY") and os.getenv("PAPERBANANA_OPENROUTER_API_KEY"):
+    os.environ["OPENROUTER_API_KEY"] = os.getenv("PAPERBANANA_OPENROUTER_API_KEY")
 
 # ═════════════════════════════════════════════════════════════════════
 #  DRAWING PRIMITIVES
@@ -74,24 +76,36 @@ def _dashed(draw, s, e, color="#8b949e", w=2, dl=12, gl=8):
         p+=dl+gl
 
 
-ALLOWED_GROQ_MODELS = {
+ALLOWED_OPENROUTER_MODELS = {
+    "google/gemini-2.5-flash",
+    "google/gemini-2.5-pro",
+    "meta-llama/llama-3.3-70b-instruct",
+    # Legacy Groq names (mapped automatically)
     "llama-3.1-8b-instant",
     "llama-3.3-70b-versatile",
     "gemma2-9b-it",
 }
 
-DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
+DEFAULT_OPENROUTER_MODEL = "google/gemini-2.5-flash"
 
 
-def _resolve_groq_model(requested: str | None, default: str = DEFAULT_GROQ_MODEL) -> str:
-    if requested and requested in ALLOWED_GROQ_MODELS:
+def _resolve_openrouter_model(requested: str | None, default: str = DEFAULT_OPENROUTER_MODEL) -> str:
+    MODEL_MAP = {
+        "llama-3.3-70b-versatile": "google/gemini-2.5-flash",
+        "llama-3.1-8b-instant": "google/gemini-2.5-flash",
+        "gemma2-9b-it": "google/gemini-2.5-flash",
+    }
+    if not requested:
+        return default
+    if "/" in requested:  # Already an OpenRouter model ID
         return requested
-    if requested and requested not in ALLOWED_GROQ_MODELS:
-        # If it's a known mapping, resolve it (e.g. from env vars that might be outdated)
-        if "llama" in requested.lower() and "70b" in requested.lower(): return "llama-3.3-70b-versatile"
-        if "mixtral" in requested.lower(): return "mixtral-8x7b-32768"
-        if "deepseek" in requested.lower(): return "deepseek-r1-distill-llama-70b"
-        print(f"WARNING: [visualizer] Unsupported model '{requested}', using '{default}'", file=sys.stderr)
+    if requested in MODEL_MAP:
+        return MODEL_MAP[requested]
+    if "llama" in requested.lower() and "70b" in requested.lower():
+        return "google/gemini-2.5-flash"
+    if "8b" in requested.lower():
+        return "google/gemini-2.5-flash"
+    print(f"WARNING: [visualizer] Unsupported model '{requested}', using '{default}'", file=sys.stderr)
     return default
 
 
@@ -440,33 +454,34 @@ def _build_arch_spec(topic, domain, research_outputs, system_category="General /
             "cross_cuts":[{"name":"Monitoring","icon":"M"},{"name":"CI/CD","icon":"C"},{"name":"Logging","icon":"L"}],
         },
         "AI & Machine Learning": {
-            "title": topic.title(), "subtitle": f"ML Pipeline Architecture | {domain.title()}",
+            "title": topic.title(), "subtitle": f"{topic.title()} — Comparative Architecture | {domain.title()}",
             "layers": [
-                {"name":"DATA INGESTION","type":"client","components":[
-                    {"name":"API Connectors","sub":"REST / GraphQL","icon":"A"},
-                    {"name":"Web Scrapers","sub":"Crawl4AI / Scrapy","icon":"S"},
-                    {"name":"File Upload","sub":"CSV / PDF / JSON","icon":"F"},
-                    {"name":"Stream Input","sub":"Kafka / Kinesis","icon":"K"}]},
-                {"name":"FEATURE ENGINEERING","type":"gateway","components":[
-                    {"name":"Preprocessing","sub":"Cleaning / Norm","icon":"P"},
-                    {"name":"Feature Store","sub":"Feast / Tecton","icon":"F"},
-                    {"name":"Embeddings","sub":m0,"icon":"E"}]},
-                {"name":"TRAINING LAYER","type":"ai_ml","components":[
-                    {"name":"GPU Cluster","sub":"A100 / H100","icon":"G"},
-                    {"name":"Experiment Track","sub":"MLflow / W&B","icon":"X"},
-                    {"name":"Model Registry","sub":"Version Control","icon":"R"},
-                    {"name":"AutoML","sub":m1,"icon":"A"}]},
-                {"name":"INFERENCE LAYER","type":"service","components":[
-                    {"name":"Model Server","sub":"TorchServe / TFX","icon":"S"},
-                    {"name":"A/B Testing","sub":"Traffic Split","icon":"T"},
-                    {"name":"Auto-scaling","sub":"K8s HPA","icon":"H"}]},
-                {"name":"MONITORING","type":"infra","components":[
-                    {"name":"Model Drift","sub":"Evidently AI","icon":"D"},
-                    {"name":"Performance","sub":"Prometheus","icon":"P"},
-                    {"name":"Data Quality","sub":"Great Expectations","icon":"Q"}]},
+                {"name":"INPUT & DATA","type":"client","components":[
+                    {"name":"Text Corpus","sub":"Pretraining Data","icon":"T"},
+                    {"name":"Image/Video","sub":"Visual Inputs","icon":"I"},
+                    {"name":"Multimodal","sub":"Text + Vision","icon":"M"},
+                    {"name":"Benchmarks","sub":"Eval Datasets","icon":"B"}]},
+                {"name":m0.upper() if m0 != "Multi-model" else "MODEL VARIANT A","type":"gateway","components":[
+                    {"name":"Tokenizer","sub":"BPE / SentencePiece","icon":"T"},
+                    {"name":"Encoder","sub":m0,"icon":"E"},
+                    {"name":"Attention","sub":"Multi-Head / Sparse","icon":"A"}]},
+                {"name":m1.upper() if m1 != "Analysis" else "MODEL VARIANT B","type":"ai_ml","components":[
+                    {"name":"Architecture","sub":m1,"icon":"A"},
+                    {"name":"Adapter","sub":"LoRA / QLoRA","icon":"L"},
+                    {"name":"Distillation","sub":"KD / Pruning","icon":"D"},
+                    {"name":"Fine-tuning","sub":"PEFT / SFT","icon":"F"}]},
+                {"name":"EVALUATION","type":"service","components":[
+                    {"name":"Accuracy","sub":"BLEU / ROUGE","icon":"A"},
+                    {"name":"Efficiency","sub":"FLOPs / Latency","icon":"E"},
+                    {"name":"Memory","sub":"VRAM / Params","icon":"M"}]},
+                {"name":"DEPLOYMENT","type":"infra","components":[
+                    {"name":"Inference","sub":"vLLM / TGI","icon":"I"},
+                    {"name":"Quantization","sub":"GPTQ / AWQ","icon":"Q"},
+                    {"name":"Edge / Mobile","sub":"ONNX / TFLite","icon":"E"}]},
             ],
-            "connections":[{"from":0,"to":1,"label":"Raw Data"},{"from":1,"to":2,"label":"Features"},
-                           {"from":2,"to":3,"label":"Model Artifact"},{"from":3,"to":4,"label":"Metrics"}],
+            "connections":[{"from":0,"to":1,"label":"Raw Data"},{"from":0,"to":2,"label":"Raw Data"},
+                           {"from":1,"to":3,"label":"Predictions"},{"from":2,"to":3,"label":"Predictions"},
+                           {"from":3,"to":4,"label":"Best Model"}],
             "cross_cuts":[{"name":"Orchestrator","icon":"O"},{"name":"Lineage","icon":"L"},{"name":"Alerts","icon":"A"}],
         },
         "Fintech & Payments": {
@@ -1442,16 +1457,15 @@ def render_methodology_flowchart(title: str, methodology_text: str, output_dir: 
 
 
 # ═════════════════════════════════════════════════════════════════════
-#  GROQ LLM-DESIGNED ARCHITECTURE
+#  OPENROUTER LLM-DESIGNED ARCHITECTURE
 # ═════════════════════════════════════════════════════════════════════
 
 def _groq_design_arch(topic, domain, research_outputs, out_dir, theme=None, system_category="General / Web App"):
-    from groq import Groq
-    key=os.getenv("GROQ_API_KEY")
-    if not key: raise RuntimeError("GROQ_API_KEY not set")
+    from agents.llm_client import _call_openrouter_api, _openrouter_pool
+    api_key, key_label = _openrouter_pool.get_next()
+    if not api_key: raise RuntimeError("OPENROUTER_API_KEY not set")
     if theme is None: theme = _pick_theme()
-    model = _resolve_groq_model(os.getenv("MODEL_VISUALIZER"), DEFAULT_GROQ_MODEL)
-    client=Groq(api_key=key)
+    model = _resolve_openrouter_model(os.getenv("MODEL_VISUALIZER"), DEFAULT_OPENROUTER_MODEL)
     methods=[]; summaries=[]
     for r in research_outputs:
         if "summary" in r: summaries.append(r["summary"][:150])
@@ -1478,8 +1492,8 @@ Return JSON ONLY:
 RULES: 4-6 layers, 3-4 components each (MINIMUM 3 per layer). Real tech names relevant to {system_category}. /no_think"""
     all_models = [
         model,
-        "llama-3.1-8b-instant",
-        "gemma2-9b-it",
+        "google/gemini-2.5-flash",
+        "google/gemini-2.5-pro",
     ]
     # Deduplicate while preserving order
     seen=set(); models_dedup=[]
@@ -1489,9 +1503,15 @@ RULES: 4-6 layers, 3-4 components each (MINIMUM 3 per layer). Real tech names re
     for m in models_dedup:
         for attempt in range(2):  # Retry each model once
             try:
-                print(f"DEBUG: Groq arch design attempt {attempt+1} with {m}", file=sys.stderr)
-                resp=client.chat.completions.create(model=m,messages=[{"role":"user","content":prompt}],max_tokens=4000,temperature=0.4+attempt*0.2)
-                raw=resp.choices[0].message.content.strip()
+                print(f"DEBUG: OpenRouter arch design attempt {attempt+1} with {m}", file=sys.stderr)
+                raw = _call_openrouter_api(
+                    api_key=api_key,
+                    model=m,
+                    messages=[{"role":"user","content":prompt}],
+                    max_tokens=4000,
+                    temperature=0.4+attempt*0.2,
+                )
+                raw = raw.strip() if raw else ""
                 if raw:
                     last_raw = raw
                     spec=_parse_json(raw)
@@ -1507,7 +1527,7 @@ RULES: 4-6 layers, 3-4 components each (MINIMUM 3 per layer). Real tech names re
                         if not spec["connections"]:
                             for ci in range(len(spec["layers"])-1):
                                 spec["connections"].append({"from":ci,"to":ci+1,"label":""})
-                        print(f"DEBUG: Groq arch design successful with {m}: {len(spec['layers'])} layers", file=sys.stderr)
+                        print(f"DEBUG: OpenRouter arch design successful with {m}: {len(spec['layers'])} layers", file=sys.stderr)
                         try:
                             return _render_architecture(spec,topic,domain,out_dir,theme=theme)
                         except Exception as e:
@@ -1525,10 +1545,10 @@ RULES: 4-6 layers, 3-4 components each (MINIMUM 3 per layer). Real tech names re
                                 print(f"DEBUG: Architecture placeholder failed: {e2}", file=sys.stderr)
                                 raise e
                     else:
-                        print(f"DEBUG: Groq {m} returned invalid JSON (no layers key). Raw[:200]: {raw[:200]}", file=sys.stderr)
+                        print(f"DEBUG: OpenRouter {m} returned invalid JSON (no layers key). Raw[:200]: {raw[:200]}", file=sys.stderr)
             except Exception as e:
                 err_str = str(e)
-                print(f"DEBUG: Groq {m} attempt {attempt+1} failed: {err_str[:200]}",file=sys.stderr)
+                print(f"DEBUG: OpenRouter {m} attempt {attempt+1} failed: {err_str[:200]}",file=sys.stderr)
                 if "429" in err_str or "rate_limit" in err_str.lower():
                     import time as _time; _time.sleep(5)
                     continue
@@ -1536,8 +1556,8 @@ RULES: 4-6 layers, 3-4 components each (MINIMUM 3 per layer). Real tech names re
                     break  # Skip this model entirely
                 break
     # Final fallback: build spec from category defaults
-    print(f"DEBUG: All Groq models failed for arch design, using category fallback", file=sys.stderr)
-    raise RuntimeError("All Groq models failed for architecture design")
+    print(f"DEBUG: All OpenRouter models failed for arch design, using category fallback", file=sys.stderr)
+    raise RuntimeError("All OpenRouter models failed for architecture design")
 
 def _parse_json(raw):
     text=re.sub(r"<think>.*?</think>","",raw,flags=re.DOTALL).strip()
@@ -1615,40 +1635,141 @@ STYLE_CONFIGS = {
 #  architecture so PaperBanana's Retriever matches the best references.
 # ═════════════════════════════════════════════════════════════════════
 
+# ═════════════════════════════════════════════════════════════════════
+#  ELITE BLUEPRINT FRAMEWORK — PaperBanana Prompt Engineering
+#  Generates spatially-aware, structurally rigorous diagram blueprints
+#  that push PaperBanana's 5-agent pipeline to elite-level output.
+#
+#  Structure per blueprint:
+#    1. CANVAS & THEME SPECIFICATION
+#    2. HIERARCHICAL LAYOUT DEFINITION (zones/swimlanes/tiers)
+#    3. NODE DEFINITIONS (shape, color, border, label, icon)
+#    4. EDGE ROUTING & CONNECTIONS (arrow types, labels, routing)
+#    5. LEGEND & ANNOTATIONS
+# ═════════════════════════════════════════════════════════════════════
+
 # ── Academic Figure Caption Templates (communicative_intent) ──
 # PaperBanana uses this as the "caption" for the generated figure.
 # Specific, descriptive captions guide the Retriever and Planner better.
 CAPTION_TEMPLATES = {
     "architecture": [
-        "Figure 1: End-to-end system architecture of the proposed {topic} framework showing data flow from input ingestion through processing layers to output generation.",
-        "Figure 1: High-level overview of the {topic} pipeline illustrating the multi-component architecture with inter-module communication protocols and data transformation stages.",
-        "Figure 1: Unified system design for {topic} depicting the hierarchical arrangement of processing modules, storage layers, and decision components with labeled data paths.",
-        "Figure 1: Complete architectural blueprint of the {topic} system showing the relationship between {n_methods} core methods, {n_papers} referenced techniques, and {n_agents} processing stages.",
+        "Figure 1: End-to-end system architecture of the proposed {topic} framework showing data flow from input ingestion through processing layers to output generation. All modules are depicted as labeled nodes with directed edges showing data and control flow between layers.",
+        "Figure 1: High-level layered architecture for {topic} with {n_methods} core methods arranged in a strict top-down hierarchy. Each tier contains typed processing nodes connected by labeled directed edges indicating data transformation, API calls, and feedback loops.",
+        "Figure 1: Complete architectural blueprint of the {topic} system. The diagram uses a clean left-to-right layout with {n_agents} processing stages, color-coded swimlanes per functional layer, and annotated connections showing protocol types and data formats.",
     ],
     "methodology": [
-        "Figure {idx}: Detailed methodology pipeline for {title} showing the sequential processing stages from input preparation through model training to evaluation.",
-        "Figure {idx}: Overview of the proposed {title} approach illustrating the {n_steps}-stage pipeline with data transformations, model components, and feedback mechanisms.",
-        "Figure {idx}: Schematic representation of the {title} framework depicting component interactions, data flow pathways, and iterative refinement loops.",
+        "Figure {idx}: Detailed methodology pipeline for {title} showing {n_steps} sequential stages. Each stage is a labeled rounded rectangle node with directed arrows indicating data flow. Includes feedback loops and quality checkpoints between processing phases.",
+        "Figure {idx}: Schematic of the {title} approach as a multi-phase pipeline. Phase boundaries are marked with dashed separators. Nodes use consistent color coding: blue for data operations, green for model components, orange for evaluation stages.",
+        "Figure {idx}: Architecture of the {title} framework with explicit node shapes (rectangles for processes, cylinders for storage, diamonds for decisions) connected by solid directed arrows with edge labels describing data transformations.",
     ],
     "workflow": [
-        "Figure 2: Research workflow diagram showing the multi-agent orchestration pipeline for {topic} with parallel research streams, synthesis stages, and output generation.",
-        "Figure 2: Process flow for the {topic} investigation depicting data collection, analysis, synthesis, and reporting stages with quality control checkpoints.",
+        "Figure 2: Multi-agent research workflow for {topic} showing three parallel research streams converging at a synthesis node. Uses swimlane layout with labeled directed edges for data handoff between agents.",
+        "Figure 2: End-to-end process flow for {topic} from data collection through analysis to report generation. Nodes are color-coded by phase with annotated edges showing intermediate outputs at each transition.",
     ],
 }
 
+# ── Elite Blueprint Theme Presets (injected into source_context) ──
+BLUEPRINT_THEMES = [
+    {
+        "name": "Academic Standard",
+        "spec": "Clean white background (#FFFFFF) with light gray grid lines. "
+                "Node fills use soft pastels: blue (#E3F2FD) for data operations, "
+                "green (#E8F5E9) for model/compute, orange (#FFF3E0) for evaluation, "
+                "purple (#F3E5F5) for orchestration. All borders are 2px solid in the darker "
+                "shade of each fill color. Text is black (#202124), 14pt sans-serif, "
+                "bold for node titles, regular for subtitles. High contrast throughout.",
+    },
+    {
+        "name": "Dark Cybernetic",
+        "spec": "Deep navy background (#0d1117) with subtle dot-grid pattern. "
+                "Node fills use rich dark tones: teal (#0A2E2E) for input, "
+                "indigo (#1A2A3D) for processing, purple (#2D1A3D) for AI/ML, "
+                "dark red (#3D1A1A) for storage. Borders are 2px glowing neon: "
+                "cyan (#64FFDA), blue (#58A6FF), purple (#BC8CFF), red (#F85149). "
+                "Text is light (#E6EDF3), bold titles with glow effect. "
+                "Arrows use glowing accent colors with 3px width.",
+    },
+    {
+        "name": "Warm Research",
+        "spec": "Warm cream background (#FFFEF7) with faint diagonal line pattern. "
+                "Node fills: coral (#FFF0E5) for inputs, gold (#FFF5CC) for processing, "
+                "sky blue (#E5F0FF) for compute, lavender (#F5E5FF) for evaluation. "
+                "Borders are 2px solid in saturated versions of fills. "
+                "Text is dark charcoal (#3D3D3D), titles 16pt bold, subtitles 12pt regular. "
+                "Directed arrows are 2px dark gray with clean mid-edge labels.",
+    },
+]
 
-def _build_academic_source_context(topic, domain, research_outputs, system_category="General / Web App"):
-    """Build source_context that reads like an ACTUAL academic methodology section.
+# ── Node Shape Vocabulary (category-specific) ──
+CATEGORY_NODE_SHAPES = {
+    "General / Web App": {
+        "data_store": ("Cylinder", "#E3F2FD", "#4285F4"),
+        "service": ("Rounded Rectangle", "#E8F5E9", "#34A853"),
+        "gateway": ("Hexagon", "#FFF3E0", "#FB8C00"),
+        "user": ("Rounded Rectangle with Person Icon", "#F3E5F5", "#9C27B0"),
+        "cache": ("Rounded Rectangle with Lightning", "#FFEBEE", "#E53935"),
+        "queue": ("Parallelogram", "#E0F7FA", "#00ACC1"),
+    },
+    "AI & Machine Learning": {
+        "data_source": ("Cylinder Cluster", "#E3F2FD", "#4285F4"),
+        "model": ("Rounded Rectangle with Brain Icon", "#F3E5F5", "#9C27B0"),
+        "training": ("Rectangle with GPU Icon", "#FFF3E0", "#FB8C00"),
+        "pipeline": ("Rounded Rectangle", "#E8F5E9", "#34A853"),
+        "store": ("Hexagonal DB", "#FFEBEE", "#E53935"),
+        "monitor": ("Dashboard Rectangle", "#E0F7FA", "#00ACC1"),
+    },
+    "Fintech & Payments": {
+        "client": ("Rounded Rectangle with Person", "#E3F2FD", "#4285F4"),
+        "security": ("Diamond with Lock", "#FFEBEE", "#E53935"),
+        "transaction": ("Rectangle", "#E8F5E9", "#34A853"),
+        "compliance": ("Rounded Rectangle with Shield", "#FFF3E0", "#FB8C00"),
+        "vault": ("Cylinder with Lock", "#F3E5F5", "#9C27B0"),
+        "queue": ("Parallelogram", "#E0F7FA", "#00ACC1"),
+    },
+    "DevOps & CI/CD Infrastructure": {
+        "repo": ("Rectangle with Branch Icon", "#E3F2FD", "#4285F4"),
+        "build": ("Rounded Rectangle", "#FFF3E0", "#FB8C00"),
+        "container": ("Cube (Docker)", "#E8F5E9", "#34A853"),
+        "deploy": ("Rounded Rectangle", "#F3E5F5", "#9C27B0"),
+        "monitor": ("Dashboard Rectangle", "#E0F7FA", "#00ACC1"),
+        "registry": ("Cylinder", "#FFEBEE", "#E53935"),
+    },
+    "Real-World Case Study": {
+        "user": ("Rounded Rectangle with Person", "#E3F2FD", "#4285F4"),
+        "service": ("Rounded Rectangle", "#E8F5E9", "#34A853"),
+        "database": ("Cylinder", "#FFEBEE", "#E53935"),
+        "external": ("Cloud Shape", "#FFF3E0", "#FB8C00"),
+        "queue": ("Parallelogram", "#E0F7FA", "#00ACC1"),
+        "cdn": ("Hexagon", "#F3E5F5", "#9C27B0"),
+    },
+    "Data Engineering & Big Data": {
+        "source": ("Cylinder with Arrow", "#E3F2FD", "#4285F4"),
+        "ingestion": ("Rounded Rectangle", "#FFF3E0", "#FB8C00"),
+        "processing": ("Rectangle", "#E8F5E9", "#34A853"),
+        "warehouse": ("Large Cylinder Stack", "#FFEBEE", "#E53935"),
+        "dashboard": ("Screen Rectangle", "#E0F7FA", "#00ACC1"),
+        "orchestrator": ("Rounded Rectangle with Gear", "#F3E5F5", "#9C27B0"),
+    },
+}
+
+
+def _build_elite_blueprint(topic, domain, research_outputs, system_category="General / Web App"):
+    """Build an Elite Blueprint for PaperBanana with Anti-Spaghetti Protocol.
     
-    PaperBanana's Retriever was trained on academic papers — so the source_context
-    should mimic the structure and language of a methodology section in a top venue paper.
-    This ensures the Retriever selects the BEST matching references, which directly
-    determines diagram quality (Planner can only be as good as its references).
+    Generates a structured, layout-explicit prompt that PaperBanana's 5-agent pipeline
+    (Retriever → Planner → Stylist → Visualizer ↔ Critic) can translate into
+    elite-quality methodology and architecture diagrams.
+    
+    The blueprint includes:
+      0. MASTER AESTHETIC CONSTRAINTS (Anti-Spaghetti Protocol)
+      1. Canvas & Theme Specification
+      2. Hierarchical Layout Definition (grid-snapped swimlanes)
+      3. Typed Node Definitions (shape, color, label, uniform sizing)
+      4. Edge Routing & Connections (orthogonal only, no diagonals)
+      5. Legend & Annotations
     """
-    # Extract rich research data
+    # ─── Extract research data ───
     methods = []
-    components = []
-    data_flows = []
     key_papers = []
     methodologies = []
     datasets = []
@@ -1674,174 +1795,330 @@ def _build_academic_source_context(topic, domain, research_outputs, system_categ
                     "steps": steps[:8],
                 })
 
-    # Build component list from category + research
     style_rules = STYLE_CONFIGS.get(system_category, STYLE_CONFIGS["General / Web App"])
+    node_shapes = CATEGORY_NODE_SHAPES.get(system_category, CATEGORY_NODE_SHAPES["General / Web App"])
+    bp_theme = random.choice(BLUEPRINT_THEMES)
     
-    # Karpathy style removed.
+    research_methods_str = ", ".join(methods[:10]) if methods else "standard processing pipeline"
     
-    category_components = style_rules["required_elements"]
-    research_methods_str = ", ".join(methods[:12]) if methods else "standard processing pipeline"
+    # ─── Get category-specific layers ───
+    spec = _build_arch_spec(topic, domain, research_outputs, system_category)
+    layers = spec.get("layers", [])
+    connections = spec.get("connections", [])
+    cross_cuts = spec.get("cross_cuts", [])
     
-    # Randomize architecture patterns for variety
-    arch_patterns = [
-        ("multi-layered pipeline", "sequential processing stages connected by data transformation interfaces"),
-        ("hub-and-spoke", "central orchestration hub coordinating specialized processing modules"),  
-        ("microservices mesh", "loosely coupled service modules communicating via message queues and API gateways"),
-        ("hierarchical cascade", "top-down processing hierarchy with feedback loops at each level"),
-        ("parallel-merge", "parallel processing branches that converge at synchronization points for aggregated output"),
-        ("event-driven reactive", "event-triggered processing pipeline with pub/sub communication between components"),
-    ]
-    arch_name, arch_desc = random.choice(arch_patterns)
+    # ═══ BUILD THE ELITE BLUEPRINT ═══
+    blueprint = []
     
-    # Randomize component arrangements
-    component_arrangements = [
-        "three-tier arrangement with separate data ingestion, processing, and output layers",
-        "five-layer stack: input preprocessing, feature extraction, core computation, post-processing, and output formatting",
-        "diamond topology with input fan-out to parallel processors and result fan-in to aggregator",
-        "pipeline-with-bypass architecture where intermediate results can skip stages via shortcut connections",
-    ]
-    arrangement = random.choice(component_arrangements)
-    
-    # Build academic methodology text
-    sections = []
-    
-    # Section 1: System Overview (mimics academic paper intro to methodology)
-    sections.append(
-        f"We present a comprehensive {arch_name} architecture for {topic} in the {domain} domain. "
-        f"The proposed system employs {arch_desc}, specifically designed to handle the requirements "
-        f"of {topic}. Our architecture follows a {arrangement}. "
-        f"The system integrates {len(methods)} core methods including {research_methods_str}, "
-        f"drawing upon insights from {len(key_papers)} recent publications in the field."
+    # ─── 0. MASTER AESTHETIC CONSTRAINTS (Anti-Spaghetti Protocol) ───
+    blueprint.append(
+        "=== MASTER AESTHETIC CONSTRAINTS ===\n"
+        "CRITICAL RULES — VIOLATING ANY OF THESE INVALIDATES THE ENTIRE DIAGRAM:\n"
+        "  1. GRID LAYOUT: All nodes MUST snap to an invisible grid. No free-floating nodes.\n"
+        "  2. ZERO OVERLAP: Absolute zero-tolerance for overlapping nodes, text, or edges.\n"
+        "  3. ORTHOGONAL EDGES ONLY: All connection lines use sharp 90-degree turns.\n"
+        "     NEVER use diagonal lines. NEVER use curved spaghetti lines.\n"
+        "  4. NO RADIAL/SPOKE LAYOUTS: NEVER arrange nodes in a circle or radial pattern.\n"
+        "     NEVER place a central hub with nodes radiating outward. This is FORBIDDEN.\n"
+        "  5. WHITE-SPACE: Maintain minimum 20% empty white-space across the canvas.\n"
+        "  6. TEXT INTEGRITY: All text fully visible, centered, with 16px minimum padding.\n"
+        "     No text edge-clipping. No text truncation.\n"
+        "  7. EDGE LABELS: Must have a solid white background box. Must not intersect nodes.\n"
+        "  8. UNIFORM NODE SIZE: Nodes within the same tier must have identical dimensions.\n"
+        "  9. ONE FLOW DIRECTION: Top-Down is the dominant flow. No backwards arrows."
     )
     
-    # Section 2: Component Description (detailed, academic style)
-    sections.append(
-        f"\nThe architecture comprises the following key components: {category_components}. "
-        f"Each component is implemented as an independent processing module with well-defined "
-        f"input/output interfaces. The system processes data through multiple transformation "
-        f"stages, beginning with raw input acquisition and progressing through feature extraction, "
-        f"core analysis using {methods[0] if methods else 'domain-specific algorithms'}, "
-        f"and culminating in structured output generation."
+    # ─── 1. CANVAS & THEME SPECIFICATION ───
+    blueprint.append(
+        f"\n=== CANVAS & THEME ===\n"
+        f"Aspect Ratio: Landscape, 16:9 (1920x1080).\n"
+        f"Visual Theme: {bp_theme['spec']}\n"
+        f"Typography: Bold 14pt sans-serif for node titles, regular 11pt for subtitles, "
+        f"10pt for edge labels. All text high-contrast and perfectly legible."
     )
     
-    # Section 3: Data Flow (critical for diagram quality)
-    data_flow_patterns = [
-        f"Data flows through the system in a directed acyclic graph (DAG) pattern. "
-        f"Raw inputs enter through the ingestion layer, undergo validation and normalization, "
-        f"then branch into parallel processing tracks for {methods[0] if methods else 'primary analysis'} "
-        f"and {methods[1] if len(methods) > 1 else 'secondary processing'}. "
-        f"Results merge at a synchronization barrier before final output assembly.",
-        
-        f"The processing pipeline implements a producer-consumer pattern with buffered queues "
-        f"between stages. Input data is partitioned and distributed across processing nodes "
-        f"implementing {methods[0] if methods else 'core algorithms'}. "
-        f"Intermediate results are aggregated through a reduce phase, "
-        f"with {methods[1] if len(methods) > 1 else 'post-processing'} applied to the merged output.",
-        
-        f"Data traverses the system through a multi-stage transformation pipeline. "
-        f"The initial preprocessing stage normalizes inputs and extracts features using "
-        f"{methods[0] if methods else 'feature extractors'}. "
-        f"These features feed into a {methods[1] if len(methods) > 1 else 'core model'} component "
-        f"that produces structured representations. A final synthesis stage combines outputs "
-        f"from all processing branches into the deliverable artifacts.",
-    ]
-    sections.append("\n" + random.choice(data_flow_patterns))
+    # ─── 2. HIERARCHICAL LAYOUT DEFINITION (Grid-Snapped Swimlanes) ───
+    tier_descs = []
+    for i, layer in enumerate(layers):
+        comps = [c.get("name", "") for c in layer.get("components", [])]
+        tier_descs.append(f"  Tier {i+1} (Row {i+1}): {layer['name']} — [{', '.join(comps)}]")
     
-    # Section 4: Method-Specific Components (from research data)
-    if methods:
-        method_desc_parts = []
-        for i, m in enumerate(methods[:8]):
-            positions = ["input preprocessing", "feature extraction", "core computation", 
-                        "intermediate processing", "output generation", "quality validation",
-                        "feedback control", "monitoring and logging"]
-            pos = positions[i % len(positions)]
-            method_desc_parts.append(f"{m} (deployed at the {pos} stage)")
-        sections.append(
-            f"\nThe technical stack incorporates: {'; '.join(method_desc_parts)}. "
-            f"These methods are interconnected through typed data interfaces that ensure "
-            f"compatibility across pipeline stages while maintaining processing isolation."
-        )
+    blueprint.append(
+        f"\n=== HIERARCHICAL LAYOUT ===\n"
+        f"Spatial Flow: Strict Top-Down layered architecture.\n"
+        f"Grid Structure: {len(layers)} horizontal swimlanes stacked vertically.\n"
+        f"Each swimlane is a full-width rectangular band with a faint background tint.\n"
+        f"Swimlanes (top to bottom):\n" + "\n".join(tier_descs) + "\n\n"
+        f"LAYOUT RULES:\n"
+        f"  - Components within each swimlane: single horizontal row, evenly spaced.\n"
+        f"  - Swimlanes separated by thin dashed horizontal lines, 40px vertical gap.\n"
+        f"  - Connected nodes across tiers must be vertically aligned.\n"
+        f"  - Swimlane label: bold vertical text on the LEFT side of each band."
+    )
     
-    # Section 5: Methodology Pipelines (from research scopes)
-    if methodologies:
-        for midx, meth in enumerate(methodologies[:3]):
-            steps_str = " → ".join(meth["steps"][:6]) if meth["steps"] else ""
-            sections.append(
-                f"\nMethodology {midx+1} — {meth['title']}: {meth['methodology'][:300]}"
-                + (f"\nPipeline: {steps_str}" if steps_str else "")
+    # ─── 3. NODE DEFINITIONS ───
+    blueprint.append(f"\n=== NODE DEFINITIONS ===")
+    node_idx = 0
+    for li, layer in enumerate(layers):
+        layer_type = layer.get("type", "service")
+        blueprint.append(f"\n--- Tier {li+1}: {layer['name']} ---")
+        
+        for ci, comp in enumerate(layer.get("components", [])):
+            node_idx += 1
+            name = comp.get("name", f"Component {ci+1}")
+            sub = comp.get("sub", "")
+            icon = comp.get("icon", "")
+            
+            # Determine shape from category vocabulary
+            shape_keys = list(node_shapes.keys())
+            shape_key = shape_keys[li % len(shape_keys)]
+            shape_name, fill_color, border_color = node_shapes[shape_key]
+            
+            blueprint.append(
+                f"  [Node {node_idx}: \"{name}\"] "
+                f"(Shape: {shape_name}, Fill: {fill_color}, Border: 2px solid {border_color}, "
+                f"Icon: \"{icon}\", Subtitle: \"{sub}\", Text: Bold centered title, regular subtitle below)"
             )
     
-    # Section 6: Domain context
-    if datasets:
-        sections.append(
-            f"\nThe system is evaluated on datasets including: {', '.join(datasets[:5])}. "
-            f"Performance metrics are tracked across all pipeline stages with automated "
-            f"quality gates at each processing boundary."
+    # ─── 4. EDGE ROUTING & CONNECTIONS (Orthogonal Anti-Spaghetti Protocol) ───
+    blueprint.append(
+        f"\n=== EDGE ROUTING & CONNECTIONS ===\n"
+        f"ROUTING PROTOCOL (MANDATORY):\n"
+        f"  - ALL edges use ORTHOGONAL routing: horizontal and vertical segments ONLY.\n"
+        f"  - Sharp 90-degree turns. NO diagonal lines. NO curved lines. NO spaghetti.\n"
+        f"  - Edges route AROUND nodes, never through them.\n"
+        f"  - Edge labels: midpoint placement, solid white background box, no intersections.\n"
+        f"  - Minimize edge crossings by vertically aligning connected nodes."
+    )
+    
+    for conn in connections:
+        f_idx = conn.get("from", 0)
+        t_idx = conn.get("to", 1)
+        label = conn.get("label", "Data")
+        
+        f_name = layers[f_idx]["name"] if f_idx < len(layers) else "Source"
+        t_name = layers[t_idx]["name"] if t_idx < len(layers) else "Target"
+        
+        blueprint.append(
+            f"  Connect [{f_name}] → [{t_name}]: solid orthogonal arrow (2px), "
+            f"label \"{label}\" (white background box). "
+            f"Route: vertical drop from source bottom to target top."
         )
     
-    return "\n".join(sections)
+    # Cross-cutting connections (dashed)
+    if cross_cuts:
+        cc_names = [c.get("name", "Service") for c in cross_cuts]
+        blueprint.append(
+            f"\n  Cross-cutting concerns spanning all tiers (shown as a vertical dashed sidebar):\n"
+            f"  [{', '.join(cc_names)}] — rendered as a thin vertical panel on the right side "
+            f"with dashed border, connected to every tier via light dashed arrows."
+        )
+    
+    # ─── 5. LEGEND & ANNOTATIONS ───
+    shape_legend_items = []
+    for key, (shape, fill, border) in list(node_shapes.items())[:6]:
+        shape_legend_items.append(f"{shape} ({fill}) = {key.replace('_', ' ').title()}")
+    
+    blueprint.append(
+        f"\n=== LEGEND & ANNOTATIONS ===\n"
+        f"Place a clean boxed legend in the bottom-right corner containing:\n"
+        f"  Shape/Color Legend:\n"
+        + "\n".join(f"    • {item}" for item in shape_legend_items) + "\n"
+        f"  Arrow Legend:\n"
+        f"    • Solid arrow = Primary data flow\n"
+        f"    • Dashed arrow = Cross-cutting / monitoring\n"
+        f"    • Bidirectional arrow = Feedback loop\n"
+        f"\n  Title: \"{topic.title()}\" (top-center, 24pt bold)\n"
+        f"  Subtitle: \"{system_category} | {domain.title()}\" (below title, 14pt regular)\n"
+        f"  Footer: \"Key Methods: {', '.join(methods[:5]) if methods else 'N/A'}\" (bottom-left, 10pt muted)"
+    )
+    
+    # ─── 6. ACADEMIC CONTEXT (for Retriever matching) ───
+    # PaperBanana's Retriever still benefits from academic prose alongside the blueprint
+    blueprint.append(
+        f"\n=== ACADEMIC CONTEXT ===\n"
+        f"This diagram illustrates the proposed {system_category.lower()} architecture for research on "
+        f"\"{topic}\" in the {domain} domain. The system comprises {len(layers)} functional tiers "
+        f"with {sum(len(l.get('components',[])) for l in layers)} processing modules. "
+        f"Core technical methods include {research_methods_str}. "
+        f"{'The architecture draws from ' + str(len(key_papers)) + ' recent publications.' if key_papers else ''}"
+    )
+    
+    if methodologies:
+        meth_titles = [m["title"] for m in methodologies[:3]]
+        blueprint.append(
+            f"Research methodologies depicted: {'; '.join(meth_titles)}."
+        )
+    
+    if datasets:
+        blueprint.append(
+            f"Evaluated on: {', '.join(datasets[:5])}."
+        )
+    
+    return "\n".join(blueprint)
+
+
+# ── Legacy alias for backward compatibility ──
+def _build_academic_source_context(topic, domain, research_outputs, system_category="General / Web App"):
+    """Delegates to the Elite Blueprint builder."""
+    return _build_elite_blueprint(topic, domain, research_outputs, system_category)
 
 
 def _build_methodology_source_context(scope_item, topic, domain, all_methods):
-    """Build source_context for a SPECIFIC methodology / future scope.
+    """Build an Elite Blueprint for a SPECIFIC methodology / future scope.
     
-    This generates academic-style text describing one research methodology,
-    optimized for PaperBanana's Retriever to find the best matching reference
-    diagrams for this specific type of pipeline.
+    Uses the same spatially-aware framework as architecture blueprints,
+    tailored for methodology pipeline diagrams. Each methodology gets
+    explicit node definitions, edge routing, and canvas specs.
     """
     title = scope_item.get("scope_title", "Proposed Methodology")
     methodology = scope_item.get("proposed_methodology", "")
     steps = scope_item.get("pipeline_steps", [])
     problem = scope_item.get("problem_statement", "")
     
-    # Randomize pipeline descriptions for variety
-    pipeline_styles = [
-        "sequential multi-stage pipeline with checkpoint validation at each transition",
-        "iterative refinement loop with early stopping based on convergence criteria",
-        "branch-and-merge topology with parallel experimental tracks",
-        "cascade architecture with progressive refinement at each level",
-        "feedback-driven pipeline with a critic loop evaluating each stage's output",
-    ]
-    pipe_style = random.choice(pipeline_styles)
+    bp_theme = random.choice(BLUEPRINT_THEMES)
     
-    sections = []
+    blueprint = []
     
-    # Academic methodology section
-    sections.append(
-        f"We propose {title} — a novel approach to address challenges in {topic} ({domain}). "
-        f"{'The core problem: ' + problem[:200] + '. ' if problem else ''}"
-        f"Our methodology implements a {pipe_style}."
+    # ─── 0. MASTER AESTHETIC CONSTRAINTS (Anti-Spaghetti Protocol) ───
+    blueprint.append(
+        "=== MASTER AESTHETIC CONSTRAINTS ===\n"
+        "CRITICAL RULES — VIOLATING ANY OF THESE INVALIDATES THE ENTIRE DIAGRAM:\n"
+        "  1. GRID LAYOUT: All nodes MUST snap to an invisible grid. No free-floating nodes.\n"
+        "  2. ZERO OVERLAP: Absolute zero-tolerance for overlapping nodes, text, or edges.\n"
+        "  3. ORTHOGONAL EDGES ONLY: All connection lines use sharp 90-degree turns.\n"
+        "     NEVER use diagonal lines. NEVER use curved spaghetti lines.\n"
+        "  4. NO RADIAL/SPOKE/CIRCULAR LAYOUTS: NEVER arrange nodes in a circle.\n"
+        "     NEVER place a central hub with nodes radiating outward. This is FORBIDDEN.\n"
+        "     This is a SEQUENTIAL PIPELINE — nodes go in a LINE, not a CIRCLE.\n"
+        "  5. WHITE-SPACE: Maintain minimum 20% empty white-space across the canvas.\n"
+        "  6. TEXT INTEGRITY: All text fully visible, centered, with 16px minimum padding.\n"
+        "  7. UNIFORM NODE SIZE: All pipeline step nodes must have identical dimensions.\n"
+        "  8. SEQUENTIAL FLOW: Nodes are arranged in a straight line (left-to-right or top-down)."
     )
     
-    # Pipeline description
+    # ─── 1. CANVAS & THEME ───
+    blueprint.append(
+        f"\n=== CANVAS & THEME ===\n"
+        f"Aspect Ratio: Landscape, 16:9 (1920x1080).\n"
+        f"Visual Theme: {bp_theme['spec']}\n"
+        f"Typography: Bold 14pt for step titles, regular 11pt for descriptions."
+    )
+    
+    # ─── 2. LAYOUT (Strict Linear — NO Radial) ───
+    n_steps_actual = len(steps) if steps else 5
+    stage_names = ["Input Processing", "Feature Engineering", "Core Computation",
+                   "Model Training", "Optimization", "Evaluation", "Deployment", "Monitoring"]
+    
+    # Use 2-row grid for 5+ steps, single row for fewer
+    if n_steps_actual <= 4:
+        layout_desc = (
+            f"Spatial Flow: Strict Left-to-Right linear pipeline.\n"
+            f"All {n_steps_actual} nodes in a single horizontal row, evenly spaced.\n"
+            f"Nodes connected by horizontal orthogonal arrows pointing right."
+        )
+    else:
+        row1_count = (n_steps_actual + 1) // 2
+        row2_count = n_steps_actual - row1_count
+        layout_desc = (
+            f"Spatial Flow: Left-to-Right, wrapping to a second row.\n"
+            f"Row 1: Steps 1-{row1_count} in a horizontal line (left to right).\n"
+            f"Row 2: Steps {row1_count+1}-{n_steps_actual} in a horizontal line (left to right).\n"
+            f"Rows are stacked vertically with a 60px gap.\n"
+            f"The last node on Row 1 connects down to the first node on Row 2 via an orthogonal elbow arrow."
+        )
+    
+    blueprint.append(
+        f"\n=== HIERARCHICAL LAYOUT ===\n"
+        f"{layout_desc}\n\n"
+        f"LAYOUT RULES:\n"
+        f"  - This is a SEQUENTIAL PIPELINE. Each step follows the previous one.\n"
+        f"  - Nodes are arranged in a STRAIGHT LINE, NOT a circle or radial pattern.\n"
+        f"  - All nodes are the same size (uniform width and height).\n"
+        f"  - Evenly spaced with large gaps between nodes."
+    )
+    
+    # ─── 3. NODE DEFINITIONS ───
+    blueprint.append(f"\n=== NODE DEFINITIONS ===")
+    
+    node_colors = [
+        ("#E3F2FD", "#4285F4"), ("#E8F5E9", "#34A853"),
+        ("#FFF3E0", "#FB8C00"), ("#F3E5F5", "#9C27B0"),
+        ("#FFEBEE", "#E53935"), ("#E0F7FA", "#00ACC1"),
+        ("#FFF9C4", "#F9A825"), ("#F1F8E9", "#558B2F"),
+    ]
+    
     if steps:
-        sections.append(f"\nThe proposed pipeline consists of {len(steps)} stages:")
         for i, step in enumerate(steps[:8]):
-            stage_names = ["Input Processing", "Feature Engineering", "Core Computation",
-                          "Model Training", "Optimization", "Evaluation", "Deployment", "Monitoring"]
             stage = stage_names[i % len(stage_names)]
-            sections.append(f"  Stage {i+1} ({stage}): {step}")
-        sections.append(
-            f"\nData flows sequentially through these stages: "
-            f"{' → '.join(steps[:8])}. "
-            f"Each stage produces typed intermediate outputs consumed by the next stage."
+            fill, border = node_colors[i % len(node_colors)]
+            blueprint.append(
+                f"  [Node {i+1}: \"{step[:50]}\"] "
+                f"(Shape: Rounded Rectangle, Fill: {fill}, Border: 2px solid {border}, "
+                f"Label: \"{stage}\", Size: uniform, Padding: 16px, Text: Bold centered.)"
+            )
+    else:
+        generic_steps = ["Data Input", "Preprocessing", "Core Processing", "Analysis", "Output"]
+        for i, step in enumerate(generic_steps):
+            fill, border = node_colors[i % len(node_colors)]
+            blueprint.append(
+                f"  [Node {i+1}: \"{step}\"] "
+                f"(Shape: Rounded Rectangle, Fill: {fill}, Border: 2px solid {border}, "
+                f"Size: uniform, Padding: 16px, Text: Bold centered.)"
+            )
+    
+    # ─── 4. EDGE ROUTING (Orthogonal Only — Anti-Spaghetti) ───
+    blueprint.append(
+        f"\n=== EDGE ROUTING & CONNECTIONS ===\n"
+        f"ROUTING PROTOCOL (MANDATORY):\n"
+        f"  - ALL edges use ORTHOGONAL routing: horizontal and vertical segments ONLY.\n"
+        f"  - Sharp 90-degree turns. NO diagonal lines. NO curved lines. NO spaghetti.\n"
+        f"  - Arrows point in the flow direction (left-to-right or top-to-bottom)."
+    )
+    
+    actual_steps = steps if steps else ["Data Input", "Preprocessing", "Core Processing", "Analysis", "Output"]
+    for i in range(len(actual_steps[:8]) - 1):
+        blueprint.append(
+            f"  Connect [Node {i+1}] -> [Node {i+2}]: solid orthogonal arrow (2px). "
+            f"Route: straight horizontal segment, no diagonal."
         )
     
-    # Methodology detail
+    # Feedback loop if applicable
+    if len(actual_steps) > 3:
+        blueprint.append(
+            f"  Connect [Node {len(actual_steps[:8])}] -> [Node 2]: dashed orthogonal arrow "
+            f"labeled \"Feedback / Iteration\". Route: orthogonal elbow BELOW the pipeline row."
+        )
+    
+    # ─── 5. LEGEND ───
+    blueprint.append(
+        f"\n=== LEGEND & ANNOTATIONS ===\n"
+        f"Title: \"{title}\" (top-center, 20pt bold)\n"
+        f"Subtitle: \"Methodology Pipeline | {domain.title()}\" (below title, 12pt)\n"
+        f"Legend (bottom-right box):\n"
+        f"  • Solid arrow = Sequential data flow\n"
+        f"  • Dashed arrow = Feedback / iteration loop"
+    )
+    
+    # ─── 6. ACADEMIC CONTEXT ───
+    blueprint.append(
+        f"\n=== ACADEMIC CONTEXT ===\n"
+        f"This diagram depicts the proposed methodology: {title}. "
+        f"{'Problem addressed: ' + problem[:200] + '. ' if problem else ''}"
+        f"The approach implements a {n_steps_actual}-stage pipeline "
+        f"{'with stages: ' + ' → '.join(steps[:6]) + '.' if steps else '.'}"
+    )
+    
     if methodology:
-        sections.append(f"\nDetailed approach: {methodology[:800]}")
+        blueprint.append(f"Detailed approach: {methodology[:600]}")
     
-    # Connect to broader research
     if all_methods:
-        relevant = random.sample(all_methods, min(5, len(all_methods)))
-        sections.append(
-            f"\nThis methodology builds upon established techniques including: "
-            f"{', '.join(relevant)}. "
-            f"The integration of these methods creates a unified framework that "
-            f"addresses limitations identified in prior work."
+        relevant = random.sample(all_methods, min(4, len(all_methods)))
+        blueprint.append(
+            f"Builds upon: {', '.join(relevant)}."
         )
     
-    return "\n".join(sections)
+    return "\n".join(blueprint)
 
 
 def _build_communicative_intent(topic, diagram_type="architecture", 
@@ -1880,46 +2157,78 @@ async def _paperbanana_generate(source_context, communicative_intent, out_dir,
     Key: communicative_intent should be a descriptive figure caption.
     Key: 3 refinement iterations is optimal (paper default).
     Key: 10 retrieval examples gives best reference coverage.
+    
+    OpenRouter Key Rotation: If primary key is quota-exhausted, tries backup keys.
     """
     from paperbanana import PaperBananaPipeline
     from paperbanana.core.config import Settings
     from paperbanana.core.types import GenerationInput, DiagramType
     
-    if not os.getenv("GOOGLE_API_KEY"):
-        raise RuntimeError("GOOGLE_API_KEY not set")
+    # Build list of available OpenRouter keys for PaperBanana
+    openrouter_keys = []
+    pb_key = os.getenv("PAPERBANANA_OPENROUTER_API_KEY", "")
+    if pb_key:
+        openrouter_keys.append(pb_key)
+    primary = os.getenv("OPENROUTER_API_KEY", "")
+    if primary and primary not in openrouter_keys:
+        openrouter_keys.append(primary)
+    for i in range(1, 10):
+        backup = os.getenv(f"OPENROUTER_API_KEY_{i}", "")
+        if backup and backup not in openrouter_keys:
+            openrouter_keys.append(backup)
     
-    # Optimal settings for maximum quality
-    settings = Settings(
-        vlm_provider="gemini",
-        vlm_model="gemini-2.0-flash",
-        image_provider="google_imagen",
-        image_model="gemini-3-pro-image-preview",
-        num_retrieval_examples=10,          # Max reference coverage for Retriever
-        refinement_iterations=iterations,    # 3 Visualizer-Critic rounds (paper default)
-        output_resolution="2k",             # High-resolution output
-        output_dir=str(out_dir),
-        save_iterations=True,               # Keep intermediate outputs for debugging
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-    )
+    if not openrouter_keys:
+        raise RuntimeError("OPENROUTER_API_KEY not set for PaperBanana")
     
     dt = DiagramType.METHODOLOGY  # PaperBanana specializes in methodology diagrams
-    
     gen_input = GenerationInput(
-        source_context=source_context[:12000],   # PaperBanana handles long contexts well
+        source_context=source_context[:12000],
         communicative_intent=communicative_intent,
         diagram_type=dt,
     )
     
-    pipeline = PaperBananaPipeline(settings=settings)
-    timeout = int(os.getenv("PAPERBANANA_TIMEOUT_SECONDS", "240"))  # 4 min for 3 iterations
+    timeout = int(os.getenv("PAPERBANANA_TIMEOUT_SECONDS", "240"))
+    last_error = None
     
-    print(f"DEBUG: PaperBanana pipeline starting: {iterations} iterations, "
-          f"10 retrieval examples, 2k resolution", file=sys.stderr)
-    print(f"DEBUG: Caption: {communicative_intent[:100]}...", file=sys.stderr)
-    print(f"DEBUG: Source context: {len(source_context)} chars", file=sys.stderr)
+    # Try each key — rotate on quota exhaustion
+    for ki, api_key in enumerate(openrouter_keys):
+        try:
+            key_label = f"key_{ki+1}" if ki > 0 else "primary"
+            print(f"DEBUG: PaperBanana pipeline starting ({key_label}): {iterations} iterations, "
+                  f"10 retrieval examples, 2k resolution", file=sys.stderr)
+            print(f"DEBUG: Caption: {communicative_intent[:100]}...", file=sys.stderr)
+            print(f"DEBUG: Source context: {len(source_context)} chars", file=sys.stderr)
+            
+            settings = Settings(
+                vlm_provider="openrouter",
+                vlm_model="google/gemma-4-31b-it:free",      # SOTA free VLM!
+                image_provider="openrouter_imagen",
+                image_model="google/gemini-2.5-flash-image", # Keep as best image gen
+                num_retrieval_examples=10,
+                refinement_iterations=iterations,
+                output_resolution="2k",
+                output_dir=str(out_dir),
+                save_iterations=True,
+                openrouter_api_key=api_key,
+            )
+            
+            pipeline = PaperBananaPipeline(settings=settings)
+            result = await asyncio.wait_for(pipeline.generate(gen_input), timeout=timeout)
+            return result
+            
+        except Exception as e:
+            last_error = e
+            err_str = str(e).lower()
+            is_quota = any(q in err_str for q in ["quota", "429", "resource_exhausted", "rate_limit"])
+            
+            if is_quota and ki < len(openrouter_keys) - 1:
+                print(f"DEBUG: PaperBanana {key_label} quota exhausted, trying next key...", file=sys.stderr)
+                time.sleep(3)  # Brief cooldown before trying next key
+                continue
+            else:
+                raise  # Non-quota error or last key — propagate
     
-    result = await asyncio.wait_for(pipeline.generate(gen_input), timeout=timeout)
-    return result
+    raise last_error  # Should not reach here
 
 
 def _run_paperbanana_sync(source_context, communicative_intent, out_dir,
@@ -1964,9 +2273,10 @@ def _extract_pb_image_path(result, out_dir):
     return None
 
 
-# ── Fast Academic Context Generator for PaperBanana Source Context ──
-# Uses Groq (cloud) for speed — a 250-word context takes ~2 seconds vs ~90s on Ollama.
-# PaperBanana's Retriever does NOT need an essay; it needs dense technical keywords.
+# ── Fast Elite Blueprint Generator via OpenRouter LLM ──
+# Uses OpenRouter (cloud, ~3s) to generate a structured Elite Blueprint that
+# PaperBanana's Retriever + Planner can translate into elite-quality diagrams.
+# The LLM produces spatially-aware blueprints with node defs and edge routing.
 
 from agents.llm_client import call_groq, strip_think_tags
 
@@ -1975,13 +2285,18 @@ def _llm_generate_academic_context(topic, domain, research_outputs,
                                      system_category="General / Web App",
                                      context_type="architecture"):
     """
-    Generate rich academic methodology text for PaperBanana's Retriever.
+    Generate an Elite Blueprint via Groq LLM for PaperBanana's pipeline.
 
-    Fast Groq-powered academic methodology text for PaperBanana's Retriever.
+    Instead of generic academic prose, this instructs Groq to produce a
+    structured blueprint with:
+      1. Hierarchical layout with named tiers/zones
+      2. Explicit node definitions (name, role, connections)
+      3. Edge routing descriptions (arrow types, labels)
+      4. Academic context paragraph for Retriever matching
 
-    Groq (~2s) vs Ollama 8B (~90s). PaperBanana doesn't need 900 words —
-    it needs dense technical keywords and component names so the Retriever
-    can match the right reference diagrams. 250 focused words beat 900 generic ones.
+    Groq (~3s) vs template builder. The LLM adds domain-specific intelligence
+    that templates cannot: it knows what components actually belong in a
+    '{system_category}' architecture for the specific topic.
     """
     # Gather research content
     methods = []
@@ -2003,38 +2318,68 @@ def _llm_generate_academic_context(topic, domain, research_outputs,
     total_papers = sum(len(r.get("top_papers", [])) for r in research_outputs)
     style_rules = STYLE_CONFIGS.get(system_category, STYLE_CONFIGS["General / Web App"])
 
-    prompt = f"""Write a 200-300 word academic methodology paragraph describing the system architecture for a research paper on "{topic}" in {domain}.
+    prompt = f"""Generate a BRIEF structured diagram blueprint for "{topic}" in {domain}.
 
-Key components to include: {style_rules['required_elements']}
-Key methods from research: {', '.join(methods[:10])}
-Datasets: {', '.join(datasets[:4]) if datasets else 'standard benchmarks'}
-Pipeline stages: {' → '.join(pipeline_steps[:5]) if pipeline_steps else 'Input → Processing → Output'}
-Research context: {summaries[0][:200] if summaries else ''}
+System Category: {system_category}
+Key methods: {', '.join(methods[:5]) if methods else 'standard methods'}
 
-Rules: Name SPECIFIC components (e.g. "8-head Cross-Attention", "Redis Cache"). Describe data flow between modules. NO visual instructions. Academic prose only. 200-300 words maximum."""
+CRITICAL CONSTRAINTS:
+- MAXIMUM 8 components total. No more.
+- Keep ALL descriptions to ONE short sentence each.  
+- Do NOT exceed 400 words total.
+- You MUST complete ALL sections below. Do NOT cut off mid-sentence.
+- If you are running out of space, use fewer components (minimum 5).
+
+=== LAYOUT ===
+Top-Down layered architecture. 3-4 tiers maximum. Orthogonal edges only.
+
+Tiers:
+  Tier 1: [Name] — [2 components with real tech names, brief]
+  Tier 2: [Name] — [2-3 components, brief]
+  Tier 3: [Name] — [2-3 components, brief]
+
+=== NODES (max 8) ===
+1. [Name] (Role: one sentence. Connects to: [target])
+2. [Name] (Role: one sentence. Connects to: [target])
+... (up to 8 max)
+
+=== EDGES (max 6) ===
+[Source] -> [Target] labeled "[data type]"
+All edges orthogonal (90-degree turns only).
+
+=== ACADEMIC CONTEXT ===
+[One 80-word paragraph naming specific technologies used. NO visual instructions.]
+
+REMEMBER: Complete output is mandatory. Stop at 400 words. 8 components max."""
 
     try:
-        print(f"DEBUG: [visualizer] Generating PaperBanana context via Groq (fast)...", file=sys.stderr)
+        print(f"DEBUG: [visualizer] Generating Elite Blueprint via Groq...", file=sys.stderr)
         raw = call_groq(
             prompt=prompt,
-            system_msg="You are a senior AI researcher. Write dense, technical academic prose. 200-300 words only. No markdown.",
-            temperature=0.5,
-            max_tokens=512,
+            system_msg=(
+                "You are a systems architect. Generate BRIEF diagram blueprints. "
+                "Maximum 8 components. Maximum 400 words total. "
+                "Use real technology names. Plain text only. No markdown."
+            ),
+            temperature=0.6,
+            max_tokens=6000,  # Maximum runway to prevent truncation
             timeout=30,
             max_retries=2,
         )
 
-        if not raw or len(raw) < 100:
-            print(f"DEBUG: [visualizer] Groq context too short, using template", file=sys.stderr)
+        if not raw or len(raw) < 150:
+            print(f"DEBUG: [visualizer] Groq blueprint too short ({len(raw) if raw else 0} chars), using template", file=sys.stderr)
             return None, -1
 
-        score = min(85, 40 + len(raw) // 10)
-        print(f"DEBUG: [visualizer] Context generated via Groq: {len(raw)} chars in ~2s", file=sys.stderr)
+        score = min(90, 50 + len(raw) // 8)
+        print(f"DEBUG: [visualizer] Elite Blueprint generated via Groq: {len(raw)} chars", file=sys.stderr)
         return raw, score
 
     except Exception as e:
-        print(f"DEBUG: [visualizer] Groq context generation failed: {e}", file=sys.stderr)
+        print(f"DEBUG: [visualizer] Groq blueprint generation failed: {e}", file=sys.stderr)
         return None, -1
+
+
 def run_visualizer_agent(topic: str, domain: str, research_outputs: list,
                          system_category: str = "General / Web App") -> dict:
     """Generate all diagrams using deep PaperBanana integration.
@@ -2117,51 +2462,69 @@ def run_visualizer_agent(topic: str, domain: str, research_outputs: list,
         warning = "PaperBanana not installed. Falling back to Groq/Pillow."
         print("DEBUG: PaperBanana not installed, skipping PB pipeline", file=sys.stderr)
 
-    # ─── TIER 1: PaperBanana 5-Agent Pipeline ───
-    # Feeds academic methodology text to Retriever → Planner → Stylist → Visualizer ↔ Critic
+    # ─── TIER 1: PaperBanana 5-Agent Pipeline with OPENROUTER KEY ROTATION ───
+    # Cycles through all available OPENROUTER_API_KEY variants before falling to Pillow.
     if pb_available:
-        try:
-            print(f"DEBUG: PaperBanana TIER 1: Sending {len(arch_source_context)} chars academic text + caption", file=sys.stderr)
-            result = _run_paperbanana_sync(
-                source_context=arch_source_context,
-                communicative_intent=arch_caption,
-                out_dir=out_dir,
-                iterations=3,
-                diagram_type="METHODOLOGY"
-            )
-            img_path = _extract_pb_image_path(result, out_dir)
-            if img_path:
-                final_path = img_path
-                pb_ok = True
-                print(f"DEBUG: PaperBanana succeeded: {final_path}", file=sys.stderr)
-        except Exception as e:
-            err = str(e)
-            print(f"DEBUG: PaperBanana failed: {err}", file=sys.stderr)
-            is_quota = any(q in err.lower() for q in ["quota", "429", "resource_exhausted", "clienterror", "retryerror", "rate_limit"])
-            
-            if not is_quota:
-                # Retry with simplified academic context (template-generated)
-                try:
-                    print(f"DEBUG: PaperBanana retry with template context...", file=sys.stderr)
-                    fallback_ctx = _build_academic_source_context(
-                        topic.strip(), domain.strip(), research_outputs, system_category
-                    )
-                    result = _run_paperbanana_sync(
-                        source_context=fallback_ctx,
-                        communicative_intent=arch_caption,
-                        out_dir=out_dir,
-                        iterations=2,  # Fewer iterations for retry
-                        diagram_type="METHODOLOGY"
-                    )
-                    img_path = _extract_pb_image_path(result, out_dir)
-                    if img_path:
-                        final_path = img_path
-                        pb_ok = True
-                except Exception as retry_e:
-                    print(f"DEBUG: PaperBanana retry also failed: {retry_e}", file=sys.stderr)
-            
-            if not pb_ok:
-                warning = "Gemini quota exhausted." if is_quota else f"PaperBanana failed: {err[:80]}"
+        or_keys = []
+        pb_key = os.getenv("PAPERBANANA_OPENROUTER_API_KEY")
+        if pb_key and pb_key.strip():
+            or_keys.append(("PAPERBANANA_OPENROUTER_API_KEY", pb_key.strip()))
+        for key_name in ["OPENROUTER_API_KEY", "OPENROUTER_API_KEY_1", "OPENROUTER_API_KEY_2", "OPENROUTER_API_KEY_3"]:
+            val = os.getenv(key_name)
+            if val and val.strip() and val.strip() not in [k[1] for k in or_keys]:
+                or_keys.append((key_name, val.strip()))
+
+        for key_idx, (key_name, key_val) in enumerate(or_keys):
+            if pb_ok:
+                break  # Already succeeded with a previous key
+            try:
+                # Inject the current key into the environment for PaperBanana
+                os.environ["OPENROUTER_API_KEY"] = key_val
+                time.sleep(3 if key_idx == 0 else 1)
+                print(f"DEBUG: PaperBanana TIER 1 — trying {key_name} (key {key_idx+1}/{len(or_keys)}), "
+                      f"sending {len(arch_source_context)} chars", file=sys.stderr)
+                result = _run_paperbanana_sync(
+                    source_context=arch_source_context,
+                    communicative_intent=arch_caption,
+                    out_dir=out_dir,
+                    iterations=3,
+                    diagram_type="METHODOLOGY"
+                )
+                img_path = _extract_pb_image_path(result, out_dir)
+                if img_path:
+                    final_path = img_path
+                    pb_ok = True
+                    print(f"DEBUG: PaperBanana succeeded with {key_name}: {final_path}", file=sys.stderr)
+            except Exception as e:
+                err = str(e)
+                print(f"DEBUG: PaperBanana failed with {key_name}: {err[:150]}", file=sys.stderr)
+                is_quota = any(q in err.lower() for q in ["quota", "429", "resource_exhausted", "clienterror", "retryerror", "rate_limit"])
+                if is_quota:
+                    print(f"DEBUG: {key_name} quota exhausted, rotating to next key...", file=sys.stderr)
+                    continue  # Try next key
+                else:
+                    # Non-quota error — try simpler context with same key before rotating
+                    try:
+                        print(f"DEBUG: PaperBanana retry with template context on {key_name}...", file=sys.stderr)
+                        fallback_ctx = _build_academic_source_context(
+                            topic.strip(), domain.strip(), research_outputs, system_category
+                        )
+                        result = _run_paperbanana_sync(
+                            source_context=fallback_ctx,
+                            communicative_intent=arch_caption,
+                            out_dir=out_dir,
+                            iterations=2,
+                            diagram_type="METHODOLOGY"
+                        )
+                        img_path = _extract_pb_image_path(result, out_dir)
+                        if img_path:
+                            final_path = img_path
+                            pb_ok = True
+                    except Exception as retry_e:
+                        print(f"DEBUG: PaperBanana retry also failed on {key_name}: {retry_e}", file=sys.stderr)
+
+        if not pb_ok:
+            warning = f"All {len(or_keys)} OpenRouter key(s) exhausted." if or_keys else "No OpenRouter keys configured."
 
     # ─── TIER 2: Category-specific Pillow fallback (with theme) ───
     if not final_path:
@@ -2177,92 +2540,12 @@ def run_visualizer_agent(topic: str, domain: str, research_outputs: list,
         final_path = canonical
     all_diagrams["architecture"] = str(final_path)
 
-    # ─── Additional diagrams (using same theme for visual consistency) ───
+    # ─── Workflow diagram (second and final diagram) ───
     try:
         wf = _render_workflow(topic, domain, research_outputs, out_dir, theme=theme)
         all_diagrams["workflow"] = str(wf)
     except Exception as e:
         print(f"DEBUG: Workflow failed: {e}", file=sys.stderr)
-    try:
-        md = _render_methods(topic, domain, research_outputs, out_dir, theme=theme)
-        all_diagrams["methods"] = str(md)
-    except Exception as e:
-        print(f"DEBUG: Methods failed: {e}", file=sys.stderr)
-
-    # ─── Methodology flowcharts with PaperBanana integration ───
-    # For each proposed methodology, try PaperBanana first (unique academic diagrams),
-    # then fall back to the 6 Pillow layout types.
-    methodology_images = []
-    for r in research_outputs:
-        for idx, m in enumerate(r.get("future_scope_methodologies", [])):
-            title = m.get("scope_title", f"Methodology {idx+1}")
-            text = m.get("proposed_methodology", "")
-            if not text or len(text) < 30:
-                continue
-            
-            p_steps = m.get("pipeline_steps", [])
-            meth_path = None
-            
-            # Try PaperBanana for this methodology (only if PB available and quota isn't exhausted)
-            if pb_available and (pb_ok or "quota" not in warning.lower()):
-                try:
-                    meth_context = _build_methodology_source_context(
-                        scope_item=m,
-                        topic=topic.strip(),
-                        domain=domain.strip(),
-                        all_methods=all_methods
-                    )
-                    meth_caption = _build_communicative_intent(
-                        topic=topic.strip(),
-                        diagram_type="methodology",
-                        index=idx,
-                        title=title,
-                        n_methods=len(all_methods),
-                        n_papers=total_papers,
-                        n_agents=n_agents,
-                        n_steps=len(p_steps)
-                    )
-                    meth_result = _run_paperbanana_sync(
-                        source_context=meth_context,
-                        communicative_intent=meth_caption,
-                        out_dir=out_dir,
-                        iterations=2,  # 2 iterations per methodology (faster)
-                        diagram_type="METHODOLOGY"
-                    )
-                    meth_path_pb = _extract_pb_image_path(meth_result, out_dir)
-                    if meth_path_pb:
-                        # Copy to canonical name
-                        safe_title = re.sub(r'[^a-zA-Z0-9]', '_', title.lower())[:50]
-                        canon_meth = out_dir / f"methodology_{idx}_{safe_title}.png"
-                        shutil.copy2(meth_path_pb, canon_meth)
-                        meth_path = str(canon_meth)
-                        print(f"DEBUG: PaperBanana methodology '{title}' succeeded", file=sys.stderr)
-                except Exception as me:
-                    print(f"DEBUG: PaperBanana methodology '{title}' failed: {me}", file=sys.stderr)
-
-            # Fall back to Pillow methodology layouts (6 types)
-            if not meth_path:
-                try:
-                    img_path = render_methodology_flowchart(title, text, out_dir, idx,
-                                                           pipeline_steps=p_steps, theme=theme)
-                    meth_path = img_path
-                except Exception as e:
-                    # Guard against geometry errors (y1<y0) by producing a minimal placeholder
-                    print(f"DEBUG: Methodology flowchart '{title}' failed: {e}", file=sys.stderr)
-                    try:
-                        from PIL import Image, ImageDraw
-                        ph = Image.new("RGB", (1200, 800), "white")
-                        d = ImageDraw.Draw(ph)
-                        d.text((40, 40), f"Methodology: {title}\n(Fallback placeholder)", fill="black")
-                        ph_path = out_dir / f"methodology_placeholder_{idx}.png"
-                        ph.save(ph_path, "PNG")
-                        meth_path = str(ph_path)
-                    except Exception as e2:
-                        print(f"DEBUG: Placeholder generation failed: {e2}", file=sys.stderr)
-            
-            if meth_path:
-                methodology_images.append({"title": title, "path": meth_path})
-                all_diagrams[f"methodology_{idx}"] = meth_path
 
     # ─── Summary ───
     source = ("PaperBanana AI (5-Agent Pipeline)" if pb_ok
@@ -2277,7 +2560,7 @@ def run_visualizer_agent(topic: str, domain: str, research_outputs: list,
         "image_path": str(final_path),
         "image_paths": {"png": str(final_path)},
         "all_diagrams": all_diagrams,
-        "methodology_images": methodology_images,
+        "methodology_images": [],  # No per-methodology diagrams
         "warning": warning.strip(),
         "paperbanana_used": pb_ok,
         "groq_designed": groq_ok,
