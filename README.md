@@ -58,9 +58,16 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-Open the `.env` file and insert your **Groq API Key**:
+Open the `.env` file and insert your API keys:
+
+> **💡 Pro Tip for API Limits & Quality**: 
+> - **Groq API**: Since Groq has strict rate limits on free tiers, we recommend generating multiple Groq API keys and rotating them, or keeping your queries small.
+> - **OpenRouter API**: For the best output quality and to avoid rate limits entirely, we highly recommend using **OpenRouter** instead.
+
 ```env
 GROQ_API_KEY=your_groq_api_key_here
+# If using OpenRouter, you can add your OPENROUTER_API_KEY here instead/additionally
+# OPENROUTER_API_KEY=your_openrouter_key
 GROQ_MODEL=llama3-70b-8192
 
 # Optional: If you use Ollama locally for certain agents
